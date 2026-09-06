@@ -22,13 +22,14 @@ const state = {
   skipEnrichment: false,
   myStatus: JSON.parse(localStorage.getItem('staylog.status') || '{}'),
   programTouched: false,
+  addingStatus: false,
 };
 
 /* ------------------------------------------------------------ Stammdaten */
 
 const PROGRAMS = {
   'Marriott Bonvoy':      { color: '#2C3D6B', status: ['Member', 'Silver Elite', 'Gold Elite', 'Platinum Elite', 'Titanium Elite', 'Ambassador Elite'] },
-  'Hilton Honors':        { color: '#1B5FA8', status: ['Member', 'Silver', 'Gold', 'Diamond'] },
+  'Hilton Honors':        { color: '#1B5FA8', status: ['Member', 'Silver', 'Gold', 'Diamond', 'Diamond Reserve'] },
   'IHG One Rewards':      { color: '#B4472F', status: ['Club', 'Silver Elite', 'Gold Elite', 'Platinum Elite', 'Diamond Elite'] },
   'World of Hyatt':       { color: '#3C6E5B', status: ['Member', 'Discoverist', 'Explorist', 'Globalist'] },
   'Accor ALL':            { color: '#3B4D8F', status: ['Classic', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Limitless'] },
@@ -158,31 +159,91 @@ $('#who').addEventListener('click', () => {
 
 /* ---------------------------------------------------------- Einstellungen */
 
+function saveStatuses() {
+  localStorage.setItem('staylog.status', JSON.stringify(state.myStatus));
+  syncStatusOptions();
+  api('/me/status', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ statuses: state.myStatus }),
+  }).catch(() => { /* bleibt zumindest im Gerät */ });
+}
+
+// Eine Zeile je gepflegtem Programm, plus die eine offene Zeile zum Hinzufuegen.
 function buildSettings() {
   const box = $('#status-settings');
   box.innerHTML = '';
-  for (const [program, info] of Object.entries(PROGRAMS)) {
-    if (!info.status.length) continue;
-    const label = el('label', null, program);
-    const sel = document.createElement('select');
-    sel.appendChild(new Option('– kein Status –', ''));
-    for (const level of info.status) sel.appendChild(new Option(level, level));
-    sel.value = state.myStatus[program] || '';
-    sel.addEventListener('change', () => {
-      if (sel.value) state.myStatus[program] = sel.value;
-      else delete state.myStatus[program];
-      localStorage.setItem('staylog.status', JSON.stringify(state.myStatus));
-      syncStatusOptions();
-      api('/me/status', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ statuses: state.myStatus }),
-      }).catch(() => { /* bleibt zumindest im Gerät */ });
-    });
-    label.appendChild(sel);
-    box.appendChild(label);
+
+  const entries = Object.entries(state.myStatus);
+  if (!entries.length && !state.addingStatus) {
+    box.appendChild(el('p', 'status-empty', 'Noch kein Programm gepflegt.'));
   }
+
+  for (const [program] of entries) box.appendChild(statusRow(program));
+  if (state.addingStatus) box.appendChild(statusRow(null));
+
+  $('#status-add').hidden = state.addingStatus
+    || entries.length >= Object.keys(PROGRAMS).length;
 }
+
+function statusRow(existing) {
+  const row = el('div', 'status-row');
+  const used = new Set(Object.keys(state.myStatus).filter((p) => p !== existing));
+
+  const progSel = document.createElement('select');
+  progSel.appendChild(new Option('– Programm wählen –', ''));
+  for (const [name, info] of Object.entries(PROGRAMS)) {
+    if (!info.status.length) continue;
+    if (used.has(name)) continue;
+    progSel.appendChild(new Option(name, name));
+  }
+  progSel.value = existing || '';
+
+  const levelSel = document.createElement('select');
+  const fillLevels = (program, chosen) => {
+    levelSel.innerHTML = '';
+    levelSel.appendChild(new Option('– Status wählen –', ''));
+    for (const level of PROGRAMS[program]?.status || []) levelSel.appendChild(new Option(level, level));
+    levelSel.value = chosen || '';
+    levelSel.disabled = !program;
+  };
+  fillLevels(existing, existing ? state.myStatus[existing] : '');
+
+  progSel.addEventListener('change', () => {
+    if (existing && existing !== progSel.value) delete state.myStatus[existing];
+    fillLevels(progSel.value, '');
+    if (progSel.value) levelSel.focus();
+  });
+
+  levelSel.addEventListener('change', () => {
+    const program = progSel.value;
+    if (!program) return;
+    if (levelSel.value) state.myStatus[program] = levelSel.value;
+    else delete state.myStatus[program];
+    state.addingStatus = false;
+    saveStatuses();
+    buildSettings();
+  });
+
+  const remove = el('button', 'remove', '×');
+  remove.type = 'button';
+  remove.title = 'Zeile entfernen';
+  remove.addEventListener('click', () => {
+    if (progSel.value) delete state.myStatus[progSel.value];
+    state.addingStatus = false;
+    saveStatuses();
+    buildSettings();
+  });
+
+  row.append(progSel, levelSel, remove);
+  return row;
+}
+
+$('#status-add').addEventListener('click', () => {
+  state.addingStatus = true;
+  buildSettings();
+  $('#status-settings').querySelector('.status-row:last-child select')?.focus();
+});
 
 $('#settings-toggle').addEventListener('click', () => {
   const panel = $('#settings');

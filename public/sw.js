@@ -1,5 +1,5 @@
 // Nur die Huelle wird zwischengespeichert. Aufenthalte und Bilder nie.
-const SHELL = 'staylog-shell-v11';
+const SHELL = 'staylog-shell-v13';
 const FILES = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

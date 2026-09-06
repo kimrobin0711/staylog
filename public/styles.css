@@ -85,12 +85,8 @@
 :root[data-theme="dark"] .keycard .card { fill: var(--gold); }
 :root[data-theme="dark"] .keycard .stripe { fill: #10161F; }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-  }
-}
 :root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
 
 
 * { box-sizing: border-box; }

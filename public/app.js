@@ -10,15 +10,13 @@ const el = (tag, cls, text) => {
 
 /* --------------------------------------------------------- Darstellung */
 
-// Drei Zustände: dem Gerät folgen, immer hell, immer dunkel.
+// Die Wahl kann "auto" sein; gesetzt wird immer das aufgelöste Ergebnis,
+// damit Farben und Bedienelemente nie auseinanderlaufen.
 function applyTheme(wahl) {
-  const wurzel = document.documentElement;
-  if (wahl === 'dark' || wahl === 'light') wurzel.dataset.theme = wahl;
-  else delete wurzel.dataset.theme;
+  const dunkel = wahl === 'dark'
+    || (wahl !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
-  const dunkel = wurzel.dataset.theme === 'dark'
-    || (!wurzel.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
-
+  document.documentElement.dataset.theme = dunkel ? 'dark' : 'light';
   document.querySelector('meta[name="theme-color"]')
     ?.setAttribute('content', dunkel ? '#10161F' : '#F2F0EA');
   document.body.classList.toggle('is-dark', dunkel);

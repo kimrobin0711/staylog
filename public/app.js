@@ -24,6 +24,7 @@ const state = {
   programTouched: false,
   addingStatus: false,
   draftStatus: {},
+  nameHits: [],
 };
 
 /* ------------------------------------------------------------ Stammdaten */
@@ -432,13 +433,22 @@ async function chooseCity(city) {
   }
 }
 
-function renderHotelOptions(extra = []) {
+function renderHotelOptions(extra) {
+  if (!extra) extra = state.nameHits || [];
   const box = $('#hotel-results');
   const q = $('#p-hotel').value.trim();
 
   const merged = [];
   const seen = new Set();
-  for (const h of [...extra, ...state.hotelCandidates]) {
+
+  // Was die Namenssuche liefert, ist bereits auf die Eingabe gemuenzt.
+  for (const h of extra) {
+    const marker = normalize(h.name);
+    if (seen.has(marker)) continue;
+    seen.add(marker);
+    merged.push(h);
+  }
+  for (const h of state.hotelCandidates) {
     const marker = normalize(h.name);
     if (seen.has(marker)) continue;
     if (q && !fuzzyMatch(h.name, q)) continue;
@@ -457,7 +467,7 @@ function renderHotelOptions(extra = []) {
     const b = el('button', 'option');
     b.type = 'button';
     b.appendChild(el('span', null, h.name));
-    b.appendChild(el('small', null, h.program || h.brand || ''));
+    b.appendChild(el('small', null, h.program || h.brand || h.street || h.place || ''));
     b.addEventListener('click', () => chooseHotel(h));
     box.appendChild(b);
   }
@@ -465,16 +475,19 @@ function renderHotelOptions(extra = []) {
 
 const searchHotelByName = debounce(async () => {
   const q = $('#p-hotel').value.trim();
-  if (q.length < 3 || !state.city) return;
+  if (q.length < 2 || !state.city) { state.nameHits = []; return; }
   try {
     const found = await api('/geo/hotel-search?q=' + encodeURIComponent(q)
-      + '&lat=' + state.city.lat + '&lon=' + state.city.lon);
-    if ($('#p-hotel').value.trim() === q) renderHotelOptions(found);
+      + '&lat=' + state.city.lat + '&lon=' + state.city.lon
+      + '&city=' + encodeURIComponent(state.city.name || ''));
+    if ($('#p-hotel').value.trim() !== q) return;
+    state.nameHits = found;
+    renderHotelOptions(found);
   } catch { /* die Umkreisliste bleibt ja stehen */ }
-}, 400);
+}, 300);
 
 $('#p-hotel').addEventListener('input', () => {
-  renderHotelOptions();
+  renderHotelOptions([]);
   searchHotelByName();
 });
 

@@ -252,20 +252,58 @@ out tags center 400;`;
   return out;
 }
 
-// Zweite Quelle: gezielt nach dem getippten Namen suchen.
-async function searchHotelsByName(q, lat, lon) {
+// Namenssuche waehrend des Tippens. Photon kann Wortanfaenge und laesst sich
+// auf Hotels einschraenken; Nominatim springt ein, wenn Photon ausfaellt.
+
+async function hotelsFromPhoton(q, lat, lon) {
+  const url = new URL('https://photon.komoot.io/api/');
+  url.searchParams.set('q', q);
+  url.searchParams.set('limit', '20');
+  url.searchParams.set('lang', 'de');
+  url.searchParams.append('osm_tag', 'tourism:hotel');
+  if (lat && lon) {
+    url.searchParams.set('lat', String(lat));
+    url.searchParams.set('lon', String(lon));
+  }
+
+  const res = await fetch(url.toString(), { headers: { 'user-agent': UA } });
+  if (!res.ok) throw new Error('Photon antwortet mit ' + res.status);
+  const data = await res.json();
+
+  return (data.features || [])
+    .map((f) => {
+      const props = f.properties || {};
+      const name = props.name;
+      if (!name) return null;
+      const [lng, lat2] = f.geometry?.coordinates || [];
+      return {
+        source: 'osm',
+        source_id: (props.osm_type === 'W' ? 'way' : props.osm_type === 'R' ? 'relation' : 'node') + '/' + props.osm_id,
+        name,
+        brand: null,
+        program: guessProgram(name),
+        lat: lat2 ?? null,
+        lon: lng ?? null,
+        street: [props.street, props.housenumber].filter(Boolean).join(' ') || null,
+        place: props.city || props.district || null,
+      };
+    })
+    .filter(Boolean);
+}
+
+async function hotelsFromNominatim(q, lat, lon) {
   const url = new URL('https://nominatim.openstreetmap.org/search');
   url.searchParams.set('q', q);
   url.searchParams.set('format', 'jsonv2');
   url.searchParams.set('limit', '15');
   url.searchParams.set('extratags', '1');
   if (lat && lon) {
-    const d = 0.35;
+    const d = 0.4;
     url.searchParams.set('viewbox', [lon - d, lat + d, lon + d, lat - d].join(','));
     url.searchParams.set('bounded', '1');
   }
 
-  const res = await fetch(url, { headers: { 'user-agent': UA, 'accept-language': 'de,en' } });
+  const res = await fetch(url.toString(), { headers: { 'user-agent': UA, 'accept-language': 'de,en' } });
   if (!res.ok) return [];
   const rows = await res.json();
 
@@ -285,6 +323,21 @@ async function searchHotelsByName(q, lat, lon) {
         street: null,
       };
     });
+}
+
+async function searchHotelsByName(q, lat, lon, city) {
+  const withCity = city && !q.toLowerCase().includes(city.toLowerCase()) ? q + ' ' + city : q;
+
+  try {
+    const found = await hotelsFromPhoton(withCity, lat, lon);
+    if (found.length) return found;
+  } catch { /* dann Nominatim */ }
+
+  try {
+    return await hotelsFromNominatim(withCity, lat, lon);
+  } catch {
+    return [];
+  }
 }
 
 /* ------------------------------------------- Zimmerkategorien per Claude */
@@ -590,11 +643,12 @@ export async function onRequest(context) {
 
     if (path === '/geo/hotel-search' && method === 'GET') {
       const q = url.searchParams.get('q');
-      if (!q || q.length < 3) return json([]);
+      if (!q || q.length < 2) return json([]);
       return json(await searchHotelsByName(
         q,
         Number(url.searchParams.get('lat')) || null,
-        Number(url.searchParams.get('lon')) || null
+        Number(url.searchParams.get('lon')) || null,
+        url.searchParams.get('city') || null
       ));
     }
 

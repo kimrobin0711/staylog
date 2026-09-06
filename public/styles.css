@@ -848,16 +848,20 @@ body.is-guest .drawer-body > .note { display: none; }
 /* ---------------------------------------------------------------- Mobil */
 
 @media (max-width: 1080px) {
-  /* Drei Zeilen: Marke, Suche, Navigation – nichts wird abgeschnitten. */
-  .topbar-inner { flex-wrap: wrap; padding: 10px 16px; gap: 10px 12px; }
+  /* Zeile 1: Marke und Zahnrad. Zeile 2: Suche. Zeile 3: Navigation. */
+  .topbar-inner { flex-wrap: wrap; padding: 10px 16px; gap: 9px 10px; }
   .brand { order: 1; }
   .topbar-user { order: 2; margin-left: auto; }
-  .search-wrap { order: 3; flex: 1 1 100%; }
-  .topnav { order: 4; margin-left: 0; flex: 1 1 auto; gap: 2px; }
-  .btn-new { order: 5; margin-left: auto; }
+  .topbar-inner::before {
+    content: ''; order: 3; flex: 0 0 100%; height: 0;
+  }
+  .search-wrap { order: 4; flex: 1 1 100%; }
+  .topnav { order: 5; margin-left: 0; flex: 1 1 auto; gap: 2px; }
+  .btn-new { order: 6; margin-left: auto; }
   .brand .mark { width: 36px; height: 36px; }
   .wordmark.small { font-size: 1.4rem; }
   .topnav-btn { padding: 8px 12px; font-size: .92rem; }
+  .btn-new { min-height: 38px; }
 }
 
 @media (max-width: 460px) {
@@ -896,6 +900,18 @@ body.is-guest .drawer-body > .note { display: none; }
 
   .kpi { padding: 13px 15px; }
   .kpi .num { font-size: 1.4rem; }
+
+  /* Kennzahlen kompakter, sonst füllen vier Karten den halben Bildschirm */
+  .totals { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+  .total-card { padding: 13px 15px; }
+  .total-num { font-size: 1.5rem; }
+  .total-label { font-size: .78rem; margin-top: 4px; }
+
+  .group-card { padding: 16px 17px; }
+  .group-grid { gap: 20px; margin-top: 15px; }
+  .group-title { font-size: 1rem; }
+  .group-grid .total-num { font-size: 1.7rem; }
+  .bar-top { font-size: .84rem; }
 }
 
 /* Auf sehr schmalen Geräten die Trefferzahl vor die Werkzeuge */

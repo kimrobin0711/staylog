@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=20260906-175449">
+<link rel="stylesheet" href="/styles.css?v=20260906-175848">
 </head>
 <body>
 
@@ -194,10 +194,13 @@
             </div>
             <button type="button" id="chosen-reset" class="btn btn-quiet">ändern</button>
           </div>
-          <p id="chosen-rating" class="rating" hidden></p>
-          <p id="chosen-desc" class="hotel-desc" hidden></p>
-          <div id="chosen-links" class="hotel-links"></div>
-          <div id="chosen-gallery" class="gallery"></div>
+          <details id="hotel-more" class="hotel-more">
+            <summary>Hotelinfos</summary>
+            <p id="chosen-rating" class="rating" hidden></p>
+            <p id="chosen-desc" class="hotel-desc" hidden></p>
+            <div id="chosen-links" class="hotel-links"></div>
+            <div id="chosen-gallery" class="gallery"></div>
+          </details>
         </article>
 
         <section class="form-block">
@@ -313,6 +316,6 @@
 
 </div>
 
-<script src="/app.js?v=20260906-175449"></script>
+<script src="/app.js?v=20260906-175848"></script>
 </body>
 </html>

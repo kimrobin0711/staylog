@@ -1671,6 +1671,9 @@ function renderChosenHotel() {
   const hotel = state.hotel;
   if (!hotel) return;
 
+  // Auf dem Handy zugeklappt, damit das Formular oben bleibt.
+  $('#hotel-more').open = window.innerWidth > 700;
+
   $('#chosen-name').textContent = hotel.name;
   $('#chosen-place').textContent = [hotel.city, hotel.country].filter(Boolean).join(', ');
 
@@ -1754,10 +1757,9 @@ async function loadGallery() {
       box.appendChild(fig);
     }
 
-    if (!(data.photos || []).length) {
-      box.insertAdjacentElement('afterend', el('p', 'gallery-note', data.google_aktiv
-        ? 'Zu diesem Haus wurden keine Bilder gefunden.'
-        : 'Ohne Google-Schlüssel gibt es meist keine Hotelbilder.'));
+    if (!(data.photos || []).length && data.google_aktiv) {
+      box.insertAdjacentElement('afterend', el('p', 'gallery-note',
+        'Zu diesem Haus wurden keine Bilder gefunden.'));
     }
   } catch { /* ohne Bilder geht es auch */ }
 }

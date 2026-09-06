@@ -246,9 +246,10 @@ body { padding-bottom: 0; }
 
 .stay-list { display: grid; gap: 14px; }
 .grouped { display: block; }
-@media (min-width: 700px) and (max-width: 1319px) { .stay-list { grid-template-columns: 1fr 1fr; } }
-@media (min-width: 1320px) { .stay-list { grid-template-columns: 1fr; gap: 16px; } }
-@media (min-width: 2100px) { .stay-list { grid-template-columns: 1fr 1fr; } }
+/* So viele Kacheln nebeneinander, wie bei mindestens 320 px Breite passen. */
+@media (min-width: 700px) {
+  .stay-list { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+}
 
 .stay {
   position: relative; text-align: left; width: 100%;
@@ -973,3 +974,19 @@ body.is-guest .drawer-body > .note { display: none; }
 .link-btn.danger { color: var(--ink-soft); }
 .link-btn.danger:hover { color: var(--down); }
 .detail-actions { align-items: center; }
+
+/* Hotelinfos: auf schmalen Schirmen zugeklappt, auf breiten offen */
+.hotel-more > summary {
+  list-style: none; cursor: pointer;
+  display: none;
+  font-size: .88rem; color: var(--ink-soft);
+  padding: 10px 0 2px;
+}
+.hotel-more > summary::-webkit-details-marker { display: none; }
+.hotel-more > summary::before { content: '▸ '; }
+.hotel-more[open] > summary::before { content: '▾ '; }
+
+@media (max-width: 700px) {
+  .hotel-more > summary { display: block; }
+  .hotel-more:not([open]) { padding-bottom: 2px; }
+}

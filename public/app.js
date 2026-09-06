@@ -30,14 +30,25 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
   if ((localStorage.getItem('staylog.theme') || 'auto') === 'auto') applyTheme('auto');
 });
 
+// Die drei Knöpfe in den Einstellungen
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('theme-toggle')?.addEventListener('click', () => {
-    const jetzt = document.body.classList.contains('is-dark');
-    const neu = jetzt ? 'light' : 'dark';
-    localStorage.setItem('staylog.theme', neu);
-    applyTheme(neu);
-  });
+  for (const knopf of document.querySelectorAll('[data-theme-choice]')) {
+    knopf.addEventListener('click', () => {
+      const wahl = knopf.dataset.themeChoice;
+      localStorage.setItem('staylog.theme', wahl);
+      applyTheme(wahl);
+      markThemeChoice();
+    });
+  }
+  markThemeChoice();
 });
+
+function markThemeChoice() {
+  const wahl = localStorage.getItem('staylog.theme') || 'auto';
+  for (const knopf of document.querySelectorAll('[data-theme-choice]')) {
+    knopf.classList.toggle('is-on', knopf.dataset.themeChoice === wahl);
+  }
+}
 
 // Die eigene Fassung steht als Version im Skriptpfad.
 const MY_VERSION = (document.currentScript?.src || '').split('v=')[1] || '';
@@ -386,6 +397,7 @@ $('#brand').addEventListener('click', () => {
 /* ---------------------------------------------------------- Einstellungen */
 
 function openSettings() {
+  markThemeChoice();
   $('#version-note').textContent = MY_VERSION
     ? 'Fassung ' + MY_VERSION
     : 'Fassung unbekannt';

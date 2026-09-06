@@ -1167,12 +1167,20 @@ details.group-card[open] > summary { margin-bottom: 4px; }
   details.group-card > summary { cursor: default; }
 }
 
-/* Umschalter zeigt immer das, was ein Klick bewirkt */
-#theme-toggle .theme-moon { display: none; }
-body.is-dark #theme-toggle .theme-sun { display: none; }
-body.is-dark #theme-toggle .theme-moon { display: inline-flex; }
-#theme-toggle span { display: inline-flex; }
-#theme-toggle svg { width: 19px; height: 19px; }
+/* Darstellung in den Einstellungen */
+.theme-block { margin-bottom: 26px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.theme-block h3 { font-size: .95rem; margin-bottom: 10px; }
+.drawer-h3 { font-size: .95rem; margin-bottom: 8px; }
+
+.theme-choice { display: flex; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; }
+.theme-choice button {
+  flex: 1; border: 0; background: var(--card-sunk); cursor: pointer;
+  padding: 9px 8px; font-size: .86rem; color: var(--ink-soft);
+  border-right: 1px solid var(--line);
+}
+.theme-choice button:last-child { border-right: 0; }
+.theme-choice button.is-on { background: var(--ink); color: var(--paper); font-weight: 600; }
+:root[data-theme="dark"] .theme-choice button.is-on { background: var(--gold); color: #10161F; }
 
 /* Gleicher Hotelname in Folge wird nur einmal geschrieben */
 .row .r-hotel.is-repeat { color: var(--ink-soft); font-weight: 400; }

@@ -602,7 +602,9 @@ details[open] > .rooms-head::before { content: '\25BE'; }
 .photo-preview img { width: 150px; height: 106px; object-fit: cover; border-radius: var(--r-sm); display: block; }
 .photo-preview input { margin-top: 6px; min-height: 34px; font-size: .85rem; }
 
-.form-actions { margin-top: 8px; }
+.form-actions { margin-top: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.form-actions .btn-solid { min-width: 220px; }
+.form-actions .form-error { flex: 1 1 100%; }
 .form-error { color: var(--down); margin-top: 12px; }
 
 /* ------------------------------------------------------------ Auswertung */

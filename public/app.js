@@ -1434,10 +1434,16 @@ async function editStay(stay) {
   document.querySelector('#stay-form button[type=submit]').textContent = 'Änderungen speichern';
 }
 
-$('#edit-cancel').addEventListener('click', () => {
+// Bearbeiten abbrechen und Eingabe verwerfen führen beide zurück zur Übersicht.
+function verwerfen() {
+  const etwasDrin = state.hotel || state.pendingPhotos.length || $('#s-notes').value.trim();
+  if (etwasDrin && !confirm('Eingaben verwerfen? Was du bisher eingetragen hast, geht verloren.')) return;
   resetPicker();
   showView('stays');
-});
+}
+
+$('#edit-cancel').addEventListener('click', verwerfen);
+$('#form-cancel').addEventListener('click', verwerfen);
 
 /* ------------------------------------------------------- Hotel-Detailseite */
 
@@ -1801,7 +1807,7 @@ function renderHotelOptions(extra) {
   box.innerHTML = '';
   if (!merged.length) {
     box.appendChild(el('p', 'options-empty', q
-      ? 'Nichts gefunden. Weiter tippen oder von Hand eintragen.'
+      ? 'Nichts gefunden. Probier eine andere Schreibweise oder such nach der Marke.'
       : 'Keine Hotels im Umkreis gefunden.'));
     return;
   }
@@ -1836,12 +1842,6 @@ const searchHotelByName = debounce(async () => {
 }, 300);
 
 $('#p-hotel').addEventListener('input', () => { renderHotelOptions([]); searchHotelByName(); });
-
-$('#hotel-manual').addEventListener('click', () => {
-  const name = prompt('Wie heißt das Hotel?');
-  if (!name) return;
-  chooseHotel({ source: 'manual', name: name.trim(), brand: null, program: null, lat: state.city?.lat, lon: state.city?.lon });
-});
 
 async function chooseHotel(candidate) {
   const payload = {

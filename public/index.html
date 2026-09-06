@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=20260906-192309">
+<link rel="stylesheet" href="/styles.css?v=20260906-192718">
 </head>
 <body>
 
@@ -88,7 +88,7 @@
           <p>Beim ersten Mal gibst du E-Mail-Adresse, das gemeinsame Passwort und einen Namen ein. Der Name steht später unter deinen Einträgen und lässt sich nicht mehr ändern. Ab dem zweiten Mal reichen Adresse und Passwort, und das Gerät merkt sich beides.</p>
 
           <h4>Aufenthalt eintragen</h4>
-          <p>Über <em>+ Aufenthalt</em> wählst du nacheinander Land, Stadt und Hotel. Die Hotelsuche verzeiht Tippfehler und fehlende Akzente, „le meriden“ findet also das Méridien.</p>
+          <p>Über <em>+ Aufenthalt</em> wählst du nacheinander Land, Stadt und Hotel. Die Hotelsuche verzeiht Tippfehler und fehlende Akzente, „le meriden“ findet also das Méridien. Findest du ein Haus nicht, probier die Marke statt des vollen Namens — oft steht es in den Kartendaten anders geschrieben.</p>
           <p>Sobald ein Hotel zum ersten Mal angelegt wird, sucht stayLOG die Zimmerkategorien auf der offiziellen Hotelseite. Das dauert zwanzig bis vierzig Sekunden — füll währenddessen einfach den Rest aus. Beim nächsten Aufenthalt im selben Haus läuft die Suche nicht erneut. Nur wenn die Recherche abbricht, kannst du die Kategorien selbst eintragen.</p>
 
           <h4>Gebucht und erhalten</h4>
@@ -262,7 +262,6 @@
           <h2>Hotel <span id="hotel-count" class="step-count"></span></h2>
           <input id="p-hotel" placeholder="Nach Name suchen" autocomplete="off">
           <div id="hotel-results" class="options"></div>
-          <button id="hotel-manual" class="btn btn-quiet">Hotel ist nicht dabei – von Hand eintragen</button>
         </li>
       </ol>
 
@@ -368,7 +367,8 @@
         </section>
 
         <div class="form-actions">
-          <button type="submit" class="btn btn-solid wide">Aufenthalt eintragen</button>
+          <button type="submit" class="btn btn-solid">Aufenthalt eintragen</button>
+          <button type="button" id="form-cancel" class="btn btn-quiet">Verwerfen</button>
           <p id="form-error" class="form-error" hidden></p>
         </div>
       </form>
@@ -405,6 +405,6 @@
 
 </div>
 
-<script src="/app.js?v=20260906-192309"></script>
+<script src="/app.js?v=20260906-192718"></script>
 </body>
 </html>

@@ -405,6 +405,8 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown, ohne Vor- oder Na
 
 {
   "found": true,
+  "official_name": "aktueller offizieller Name des Hauses, mit Markenzusatz",
+  "renamed": false,
   "chain": "Marriott International",
   "brand": "Sheraton",
   "program": "Marriott Bonvoy",
@@ -438,6 +440,13 @@ Regeln zur Reihenfolge – das ist der wichtigste Teil:
   heisst das nichts.
 - Kannst du die Reihenfolge nicht belegen, setze "rank_reliable": false und vergib die
   Raenge in der Reihenfolge, in der die Kategorien auf der Seite stehen.
+
+Regeln zum Namen:
+- "official_name" ist der Name, unter dem das Haus heute auftritt, samt Markenzusatz.
+- Haeuser wechseln die Marke. Weicht der heutige Name vom oben genannten ab, setze
+  "renamed": true und gib den aktuellen Namen an. Beispiel: aus einem "Best Western
+  Premier Hotel X" wird ein "Radisson Blu Hotel X".
+- Bist du dir beim Namen nicht sicher, setze "official_name": null.
 
 Regeln zum Treueprogramm:
 - "program" ist das Programm, in dem der Aufenthalt zaehlt. Moegliche Werte sind
@@ -566,6 +575,18 @@ function optionalNumber(value) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// Nur uebernehmen, wenn der neue Name erkennbar dasselbe Haus meint.
+function nameFitsHotel(alt, neu) {
+  if (!neu || neu.length < 4) return false;
+  const stopp = new Set(['hotel', 'the', 'by', 'a', 'member', 'of', 'and', 'resort', 'spa', 'am', 'im']);
+  const teile = (s) => new Set(slug(s).split(' ').filter((w) => w.length > 2 && !stopp.has(w)));
+  const a = teile(alt);
+  const b = teile(neu);
+  if (!a.size || !b.size) return false;
+  for (const wort of a) if (b.has(wort)) return true;   // ein tragendes Wort genuegt
+  return false;
+}
+
 async function runEnrichment(env, hotelId) {
   const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
   if (!hotel) return;
@@ -640,7 +661,8 @@ async function runEnrichment(env, hotelId) {
            chain = COALESCE(?, chain), brand = COALESCE(?, brand),
            program = COALESCE(?, program), lounge = ?, breakfast_note = ?,
            address = COALESCE(?, address), website = COALESCE(?, website),
-           description = COALESCE(?, description), rank_reliable = ?
+           description = COALESCE(?, description), rank_reliable = ?,
+           name = COALESCE(?, name)
          WHERE id = ?`
       ).bind(
         stamp,
@@ -653,6 +675,11 @@ async function runEnrichment(env, hotelId) {
         result.website || null,
         result.description || null,
         result.rank_reliable === false ? 0 : 1,
+        // Umbenennung nur uebernehmen, wenn sie plausibel dasselbe Haus meint.
+        (result.official_name && result.official_name !== hotel.name
+          && nameFitsHotel(hotel.name, result.official_name))
+          ? result.official_name
+          : null,
         hotelId
       )
     );

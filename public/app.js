@@ -579,7 +579,7 @@ function renderStayList() {
   if (state.view === 'rows') sortStays(list);
 
   box.innerHTML = '';
-  box.className = state.view === 'rows' ? 'rows' : 'stay-list';
+  box.className = state.groupBy ? 'grouped' : (state.view === 'rows' ? 'rows' : 'stay-list');
 
   if (!list.length) {
     box.appendChild(el('p', 'empty', state.stays.length
@@ -705,7 +705,7 @@ function renderStayRow(s) {
 
   const flow = el('span', 'r-flow');
   flow.appendChild(el('span', 'r-muted', s.booked_room || '–'));
-  flow.appendChild(el('span', 'r-arrow', '→'));
+  flow.appendChild(el('span', 'r-arrow', flowArrow(s.upgrade_steps)));
   flow.appendChild(el('span', null, s.received_room || '–'));
   row.appendChild(flow);
 
@@ -742,7 +742,7 @@ function renderHotelHits(q) {
   if (!hits.length) return;
 
   box.hidden = false;
-  box.appendChild(el('h4', null, 'HOTELS'));
+  box.appendChild(el('h4', null, 'Hotels'));
   for (const p of hits.slice(0, 5)) {
     const row = el('div', 'hotel-hit');
     row.appendChild(hotelLink(p.hotel_name, p.hotel_id));
@@ -817,7 +817,10 @@ function renderFlow(s) {
   flow.appendChild(booked);
 
   const mid = el('div', 'flow-mid');
-  mid.appendChild(el('span', 'flow-arrow', '↓'));
+  const arrow = el('span', 'flow-arrow', flowArrow(s.upgrade_steps));
+  if (s.upgrade_steps > 0) arrow.className = 'flow-arrow flow-up';
+  if (s.upgrade_steps < 0) arrow.className = 'flow-arrow flow-down';
+  mid.appendChild(arrow);
   const verdict = el('span', null, upgradeText(s.upgrade_steps));
   verdict.className = s.upgrade_steps > 0 ? 'flow-up' : s.upgrade_steps < 0 ? 'flow-down' : 'flow-same';
   mid.appendChild(verdict);
@@ -828,6 +831,14 @@ function renderFlow(s) {
   got.appendChild(el('span', 'flow-value got', s.received_room || 'nicht erfasst'));
   flow.appendChild(got);
   return flow;
+}
+
+// Hoch bei Upgrade, runter bei Downgrade, waagerecht wenn sich nichts tut.
+function flowArrow(steps) {
+  if (steps == null) return '→';
+  if (steps > 0) return '↑';
+  if (steps < 0) return '↓';
+  return '→';
 }
 
 function upgradeText(steps) {
@@ -874,9 +885,21 @@ function closeDetail() {
 }
 $('#detail-close').addEventListener('click', closeDetail);
 
+function detailHead() {
+  const head = el('div', 'detail-head');
+  const close = el('button', 'icon-btn', '×');
+  close.type = 'button';
+  close.title = 'Schließen';
+  close.setAttribute('aria-label', 'Schließen');
+  close.addEventListener('click', closeDetail);
+  head.appendChild(close);
+  return head;
+}
+
 function showDetail(s) {
   const box = $('#detail-body');
   box.innerHTML = '';
+  box.appendChild(detailHead());
   $('#detail-pane').classList.add('is-open');
   document.querySelector('.workspace').classList.add('has-detail');
 
@@ -895,7 +918,7 @@ function showDetail(s) {
   if (s.booked_room || s.received_room) box.appendChild(renderFlow(s));
 
   const facts = el('div', 'detail-section');
-  facts.appendChild(el('h4', null, 'AUFENTHALT'));
+  facts.appendChild(el('h4', null, 'Aufenthalt'));
   const grid = el('div', 'detail-facts');
   const fact = (label, value) => {
     if (!value) return;
@@ -913,7 +936,7 @@ function showDetail(s) {
 
   if (s.benefits?.length) {
     const section = el('div', 'detail-section');
-    section.appendChild(el('h4', null, 'BENEFITS'));
+    section.appendChild(el('h4', null, 'Benefits'));
     const pills = el('div', 'stay-benefits');
     for (const b of s.benefits) {
       const pill = el('span', 'pill');
@@ -930,14 +953,14 @@ function showDetail(s) {
 
   if (s.notes) {
     const section = el('div', 'detail-section');
-    section.appendChild(el('h4', null, 'ERFAHRUNG'));
+    section.appendChild(el('h4', null, 'Erfahrungsbericht'));
     section.appendChild(el('p', 'detail-notes', s.notes));
     box.appendChild(section);
   }
 
   if (s.photos?.length) {
     const section = el('div', 'detail-section');
-    section.appendChild(el('h4', null, 'FOTOS'));
+    section.appendChild(el('h4', null, 'Fotos'));
     const gallery = el('div', 'detail-gallery');
     for (const p of s.photos) {
       const fig = document.createElement('figure');
@@ -1084,7 +1107,7 @@ async function showHotel(hotelId) {
     if (links.children.length) box.appendChild(links);
 
     // Kennzahlen
-    const kpis = section('COMMUNITY');
+    const kpis = section('Überblick');
     const grid = el('div', 'hotel-kpis');
     const kpi = (num, label) => {
       const cell = el('div', 'kpi');
@@ -1095,27 +1118,27 @@ async function showHotel(hotelId) {
     kpi(String(data.stays), data.stays === 1 ? 'Aufenthalt' : 'Aufenthalte');
     kpi(String(data.people), data.people === 1 ? 'Person' : 'Personen');
     if (data.stays >= 3) {
-      kpi(data.upgrade_quote != null ? data.upgrade_quote + ' %' : '–', 'mit Upgrade');
+      kpi(data.upgrade_quote != null ? data.upgrade_quote + ' %' : '–', 'Upgradequote');
       kpi(data.suite_quote != null ? data.suite_quote + ' %' : '–', 'Suite-Upgrades');
     }
     if (data.avg_steps != null) kpi((data.avg_steps > 0 ? '+' : '') + comma(data.avg_steps), 'Ø Kategorien');
     kpis.appendChild(grid);
     if (data.stays < 3) {
       kpis.appendChild(el('p', 'sample-note', data.stays === 1
-        ? 'Erst ein gemeldeter Aufenthalt – für Quoten zu wenig.'
-        : data.stays + ' gemeldete Aufenthalte – für belastbare Quoten noch zu wenig.'));
+        ? 'Ein gemeldeter Aufenthalt. Für Quoten ist die Basis zu klein.'
+        : data.stays + ' gemeldete Aufenthalte. Für Quoten ist die Basis zu klein.'));
     }
     box.appendChild(kpis);
 
     // Alle Aufenthalte: wer, wann, was bekommen
-    const table = section('WER HAT WAS BEKOMMEN');
+    const table = section('Aufenthalte im Detail');
     const scroll = el('div', 'table-scroll');
     const t = document.createElement('table');
     t.className = 'stay-table';
 
     const thead = document.createElement('thead');
     const hr = document.createElement('tr');
-    for (const h of ['Datum', 'Person', 'Status', 'Gebucht → Erhalten', 'Upgrade', 'Benefits', 'Preis']) {
+    for (const h of ['Datum', 'Person', 'Status', 'Zimmer gebucht → erhalten', 'Upgrade', 'Benefits', 'Preis']) {
       hr.appendChild(el('th', null, h));
     }
     thead.appendChild(hr);
@@ -1134,7 +1157,7 @@ async function showHotel(hotelId) {
 
     if (data.by_status.length) {
       const left = el('div');
-      left.appendChild(el('h3', null, 'WAS DIE STATUSLEVEL BRINGEN'));
+      left.appendChild(el('h3', null, 'Nach Statuslevel'));
       for (const g of data.by_status) {
         const row = el('div', 'status-line');
         const info = el('div');
@@ -1151,7 +1174,7 @@ async function showHotel(hotelId) {
         row.appendChild(info);
         row.appendChild(el('span', 'quote', g.stays >= 3 && g.upgrade_quote != null
           ? g.upgrade_quote + ' %'
-          : (g.upgrade_quote === 100 ? 'Upgrade' : g.upgrade_quote === 0 ? 'kein Upgrade' : '–')));
+          : g.upgraded + ' von ' + g.stays));
         left.appendChild(row);
       }
       cols.appendChild(left);
@@ -1159,12 +1182,12 @@ async function showHotel(hotelId) {
 
     const right = el('div');
     if (data.pairs.length) {
-      right.appendChild(el('h3', null, 'HÄUFIGE UPGRADES'));
+      right.appendChild(el('h3', null, 'Häufige Upgrades'));
       for (const pair of data.pairs) {
         const row = el('div', 'pair');
         const rooms = el('div', 'pair-rooms');
         rooms.appendChild(el('div', null, pair.booked));
-        rooms.appendChild(el('div', 'to', '↓ ' + pair.received));
+        rooms.appendChild(el('div', 'to', flowArrow(pair.steps) + ' ' + pair.received));
         row.appendChild(rooms);
         row.appendChild(el('span', 'pair-count', pair.count + '× gemeldet'));
         right.appendChild(row);
@@ -1174,7 +1197,7 @@ async function showHotel(hotelId) {
     if (cols.children.length) box.appendChild(cols);
 
     if (data.benefits.length) {
-      const benefits = section('BENEFITS');
+      const benefits = section('Benefits');
       for (const b of data.benefits) benefits.appendChild(benefitBar(b, data.stays));
       box.appendChild(benefits);
     }
@@ -1215,7 +1238,8 @@ function hotelStayRow(s) {
 
   const flow = el('td', 'c-flow');
   flow.appendChild(el('div', 'r-muted', s.booked_room || '–'));
-  flow.appendChild(el('div', null, (s.received_room ? '↓ ' : '') + (s.received_room || '')));
+  flow.appendChild(el('div', null,
+    (s.received_room ? flowArrow(s.upgrade_steps) + ' ' : '') + (s.received_room || '')));
   tr.appendChild(flow);
 
   const step = el('td', 'c-step' + (s.upgrade_steps > 0 ? ' up' : s.upgrade_steps < 0 ? ' down' : ''));
@@ -1259,7 +1283,7 @@ function benefitBar(b, total) {
   fill.style.width = (total >= 3 ? b.quote : Math.round((b.count / Math.max(total, 1)) * 100)) + '%';
   track.appendChild(fill);
   row.appendChild(track);
-  if (total >= 3) row.appendChild(el('div', 'sample-note', 'basierend auf ' + total + ' Aufenthalten'));
+  if (total >= 3) row.appendChild(el('div', 'sample-note', 'Basis: ' + total + ' Aufenthalte'));
   return row;
 }
 
@@ -1823,11 +1847,14 @@ function updateUpgradeHint() {
   const got = rank($('#s-received').value);
 
   badge.className = 'upgrade-badge';
+  const arrowNode = badge.querySelector('.upgrade-arrow');
   if (booked == null || got == null) {
+    arrowNode.textContent = '→';
     text.textContent = $('#s-booked').disabled ? 'Kategorien werden geladen' : 'Kategorien wählen';
     return;
   }
   const steps = got - booked;
+  arrowNode.textContent = flowArrow(steps);
   text.textContent = upgradeText(steps);
   if (steps > 0) badge.classList.add('up');
   if (steps < 0) badge.classList.add('down');
@@ -2118,7 +2145,7 @@ async function loadStats() {
       [String(t.stays), t.stays === 1 ? 'Aufenthalt' : 'Aufenthalte'],
       [String(t.hotels), 'Hotels'],
       [String(t.nights), 'Nächte'],
-      [t.upgrade_quote != null ? t.upgrade_quote + ' %' : '–', 'davon mit Upgrade'],
+      [t.upgrade_quote != null ? t.upgrade_quote + ' %' : '–', 'Upgradequote'],
     ]) {
       const card = el('div', 'total-card');
       card.appendChild(el('div', 'total-num', num));
@@ -2147,7 +2174,7 @@ async function loadStats() {
       const grid = el('div', 'group-grid');
 
       const upgrades = el('div');
-      upgrades.appendChild(el('h4', null, 'UPGRADES'));
+      upgrades.appendChild(el('h4', null, 'Upgrades'));
       upgrades.appendChild(el('div', 'total-num', g.upgrade_quote != null ? g.upgrade_quote + ' %' : '–'));
       upgrades.appendChild(el('div', 'total-label', 'Upgradequote'));
       if (g.avg_steps != null) {
@@ -2157,14 +2184,14 @@ async function loadStats() {
         upgrades.appendChild(el('div', 'group-sub', g.suite_quote + ' % davon in eine Suite'));
       }
       if (g.stays < 3) {
-        upgrades.appendChild(el('div', 'sample-note', 'nur ' + g.stays
-          + (g.stays === 1 ? ' Aufenthalt – wenig aussagekräftig' : ' Aufenthalte – wenig aussagekräftig')));
+        upgrades.appendChild(el('div', 'sample-note', 'Basis: ' + g.stays
+          + (g.stays === 1 ? ' Aufenthalt' : ' Aufenthalte')));
       }
       grid.appendChild(upgrades);
 
       if (g.benefits.length) {
         const benefits = el('div');
-        benefits.appendChild(el('h4', null, 'BENEFITS ERHALTEN'));
+        benefits.appendChild(el('h4', null, 'Benefits erhalten'));
         for (const b of g.benefits) {
           const row = el('div', 'bar-row');
           const top = el('div', 'bar-top');
@@ -2183,7 +2210,7 @@ async function loadStats() {
 
       if (g.top_hotels.length) {
         const hotels = el('div');
-        hotels.appendChild(el('h4', null, 'BESTE HÄUSER FÜR UPGRADES'));
+        hotels.appendChild(el('h4', null, 'Beste Häuser'));
         for (const h of g.top_hotels) {
           const row = el('div', 'top-hotel');
           row.appendChild(hotelLink(h.name, h.id));

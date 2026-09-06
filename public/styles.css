@@ -256,6 +256,7 @@ body { padding-bottom: 0; }
 /* -------------------------------------------------------- Aufenthalts-Card */
 
 .stay-list { display: grid; gap: 14px; }
+.grouped { display: block; }
 @media (min-width: 700px) and (max-width: 1319px) { .stay-list { grid-template-columns: 1fr 1fr; } }
 @media (min-width: 1320px) { .stay-list { grid-template-columns: 1fr; gap: 16px; } }
 @media (min-width: 2100px) { .stay-list { grid-template-columns: 1fr 1fr; } }
@@ -302,7 +303,9 @@ body { padding-bottom: 0; }
   margin: 7px 0 7px 0; padding-left: 66px;
   font-size: .85rem; font-weight: 600;
 }
-.flow-arrow { color: var(--ink-soft); }
+.flow-arrow { color: var(--ink-soft); font-size: 1.05rem; }
+.flow-arrow.flow-up { color: var(--gold); }
+.flow-arrow.flow-down { color: var(--down); }
 .flow-up { color: var(--gold); }
 .flow-down { color: var(--down); }
 .flow-same { color: var(--ink-soft); font-weight: 400; }
@@ -334,6 +337,7 @@ body { padding-bottom: 0; }
 
 .detail-pane { display: none; }
 .detail-close { display: none; }
+.detail-head { display: flex; justify-content: flex-end; margin-bottom: 6px; }
 
 @media (min-width: 1320px) {
   .workspace.has-detail .detail-pane {
@@ -358,8 +362,8 @@ body { padding-bottom: 0; }
 .detail-sub { color: var(--ink-soft); margin-top: 4px; }
 .detail-section { margin-top: 22px; }
 .detail-section h4 {
-  font-size: .72rem; letter-spacing: .09em; color: var(--ink-soft);
-  font-weight: 500; margin-bottom: 8px;
+  font-size: .84rem; color: var(--ink-soft);
+  font-weight: 600; margin-bottom: 9px;
 }
 .detail-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
 .fact-label { font-size: .78rem; color: var(--ink-soft); }
@@ -399,6 +403,9 @@ body { padding-bottom: 0; }
 /* ------------------------------------------------------- Eintragen: Form */
 
 .form-shell { max-width: none; }
+.steps { max-width: 900px; }
+.step input, .step .options { max-width: 460px; }
+.step .option { max-width: 460px; }
 
 /* Auf breiten Schirmen zwei Spalten, damit die Flaeche genutzt wird. */
 @media (min-width: 1100px) {
@@ -561,7 +568,7 @@ details[open] > .rooms-head::before { content: '\25BE'; }
 .group-title { font-size: 1.05rem; font-weight: 600; }
 .group-sub { color: var(--ink-soft); font-size: .88rem; }
 .group-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 22px; margin-top: 18px; }
-.group-grid h4 { font-size: .72rem; letter-spacing: .09em; color: var(--ink-soft); font-weight: 500; margin-bottom: 10px; }
+.group-grid h4 { font-size: .84rem; color: var(--ink-soft); font-weight: 600; margin-bottom: 10px; }
 .top-hotel { font-size: .9rem; padding: 5px 0; }
 .top-hotel .n { color: var(--ink-soft); font-size: .82rem; }
 
@@ -806,8 +813,8 @@ body.is-guest .drawer-body > .note { display: none; }
 .hotel-sub { color: var(--ink-soft); margin-top: 5px; }
 .hotel-section { margin-top: 34px; }
 .hotel-section > h3 {
-  font-size: .74rem; letter-spacing: .09em; color: var(--ink-soft);
-  font-weight: 500; margin-bottom: 12px;
+  font-size: 1.05rem; color: var(--ink);
+  font-weight: 600; margin-bottom: 14px;
 }
 .hotel-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
 .kpi { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); padding: 16px 18px; }
@@ -815,6 +822,7 @@ body.is-guest .drawer-body > .note { display: none; }
 .kpi .lbl { font-size: .8rem; color: var(--ink-soft); margin-top: 5px; }
 
 .hotel-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+.hotel-cols h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 14px; }
 @media (max-width: 820px) { .hotel-cols { grid-template-columns: 1fr; } }
 
 .stay-table { width: 100%; border-collapse: collapse; font-size: .89rem; }

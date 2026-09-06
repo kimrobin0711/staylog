@@ -1154,6 +1154,7 @@ export async function onRequest(context) {
             program: g.program,
             status: g.status,
             stays: g.stays,
+            upgraded: g.upgraded,
             upgrade_quote: share(g.upgraded, g.stays),
             avg_steps: g.steps.length
               ? Math.round((g.steps.reduce((a, b) => a + b, 0) / g.steps.length) * 10) / 10

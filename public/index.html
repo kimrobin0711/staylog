@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=20260906-173330">
+<link rel="stylesheet" href="/styles.css?v=20260906-173926">
 </head>
 <body>
 
@@ -89,7 +89,7 @@
   </div>
 
   <div id="guest-bar" class="guest-bar" hidden>
-    <span id="guest-text">Gastansicht – du kannst alles ansehen, aber nichts eintragen.</span>
+    <span id="guest-text">Gastzugang – Ansicht möglich, Einträge nicht.</span>
     <button type="button" id="guest-login" class="btn btn-quiet">Anmelden</button>
   </div>
 
@@ -151,7 +151,7 @@
       <aside class="detail-pane" id="detail-pane">
         <button type="button" id="detail-close" class="icon-btn detail-close" aria-label="Schließen">&times;</button>
         <div id="detail-body" class="detail-body">
-          <p class="detail-placeholder">Wähle einen Aufenthalt, um alles dazu zu sehen.</p>
+          <p class="detail-placeholder">Wähle einen Aufenthalt für alle Details.</p>
         </div>
       </aside>
     </div>
@@ -207,7 +207,7 @@
               <select id="s-booked"></select>
             </div>
             <div id="upgrade-hint" class="upgrade-badge">
-              <span class="upgrade-arrow">↓</span>
+              <span class="upgrade-arrow">→</span>
               <span id="upgrade-text">Kategorien wählen</span>
             </div>
             <div class="room-slot">
@@ -285,7 +285,7 @@
   <!-- -------------------------------------------------------- Hotelseite -->
   <main id="view-hotel" class="view" hidden>
     <div class="hotel-shell">
-      <button type="button" id="hotel-back" class="link-btn">← zurück zu den Aufenthalten</button>
+      <button type="button" id="hotel-back" class="link-btn">← Zurück zur Übersicht</button>
       <div id="hotel-page"></div>
     </div>
   </main>
@@ -295,10 +295,10 @@
     <div class="stats-shell">
       <div class="stats-head">
         <h1>Auswertung</h1>
-        <label class="inline-select">Sicht
+        <label class="inline-select">Auswertung für
           <select id="stats-scope">
-            <option value="">die ganze Runde</option>
-            <option value="me">nur ich</option>
+            <option value="">alle Mitglieder</option>
+            <option value="me">meine Aufenthalte</option>
           </select>
         </label>
       </div>
@@ -318,6 +318,6 @@
   </nav>
 </div>
 
-<script src="/app.js?v=20260906-173330"></script>
+<script src="/app.js?v=20260906-173926"></script>
 </body>
 </html>

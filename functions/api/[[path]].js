@@ -687,11 +687,15 @@ async function withDetails(env, stays) {
 async function suiteLookup(env, hotelIds) {
   const map = new Map();
   if (!hotelIds.length) return map;
-  const rows = await env.DB.prepare(
-    `SELECT hotel_id, name, type FROM room_types
-      WHERE hotel_id IN (${hotelIds.map(() => '?').join(',')})`
-  ).bind(...hotelIds).all();
-  for (const r of rows.results) map.set(r.hotel_id + '|' + r.name, r.type);
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT hotel_id, name, type FROM room_types
+        WHERE hotel_id IN (${hotelIds.map(() => '?').join(',')})`
+    ).bind(...hotelIds).all();
+    for (const r of rows.results) map.set(r.hotel_id + '|' + r.name, r.type);
+  } catch {
+    // Spalte fehlt noch, weil die Migration aussteht – dann eben ohne Suite-Quote.
+  }
   return map;
 }
 

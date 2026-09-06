@@ -1796,13 +1796,15 @@ function renderHotelOptions(extra) {
     seen.add(marker);
     merged.push(h);
   }
+  const rest = [];
   for (const h of state.hotelCandidates) {
     const marker = normalize(h.name);
     if (seen.has(marker)) continue;
     if (q && !fuzzyMatch(h.name, q)) continue;
     seen.add(marker);
-    merged.push(h);
+    (h.known ? merged : rest).push(h);
   }
+  merged.push(...rest);
 
   box.innerHTML = '';
   if (!merged.length) {
@@ -1816,6 +1818,8 @@ function renderHotelOptions(extra) {
     b.type = 'button';
     const label = el('span');
     label.appendChild(document.createTextNode(h.name));
+    if (h.known) label.appendChild(el('span', 'known-mark', 'in stayLOG'));
+    else if (h.aktuell) label.appendChild(el('span', 'known-mark aktuell', 'aktuell'));
     if (h.local_name) {
       label.appendChild(document.createElement('br'));
       label.appendChild(el('span', 'local-name', h.local_name));
@@ -1839,7 +1843,7 @@ const searchHotelByName = debounce(async () => {
     state.nameHits = found;
     renderHotelOptions(found);
   } catch { /* Umkreisliste bleibt */ }
-}, 300);
+}, 500);
 
 $('#p-hotel').addEventListener('input', () => { renderHotelOptions([]); searchHotelByName(); });
 

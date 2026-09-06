@@ -370,8 +370,65 @@ async function hotelsFromNominatim(q, lat, lon) {
     });
 }
 
-async function searchHotelsByName(q, lat, lon, city) {
+// Google kennt die aktuellen Namen. OpenStreetMap hinkt bei Markenwechseln nach.
+async function hotelsFromGoogle(env, q, lat, lon, city) {
+  const key = env.GOOGLE_API_KEY;
+  if (!key) return null;
+
+  const limit = Number(env.GOOGLE_MONTHLY_LIMIT || 800);
+  if (await usageCount(env, 'google') >= limit) return null;
+
+  const body = {
+    textQuery: [q, city].filter(Boolean).join(' '),
+    includedType: 'lodging',
+    maxResultCount: 12,
+    languageCode: 'de',
+  };
+  if (lat && lon) {
+    body.locationBias = { circle: { center: { latitude: lat, longitude: lon }, radius: 30000 } };
+  }
+
+  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'X-Goog-Api-Key': key,
+      // Nur Name, Adresse und Lage – das bleibt in der guenstigen Stufe.
+      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location',
+    },
+    body: JSON.stringify(body),
+  });
+
+  await usageAdd(env, 'google', 1);
+  if (!res.ok) return null;
+
+  const daten = await res.json();
+  return (daten.places || []).map((place) => {
+    const name = place.displayName?.text;
+    if (!name) return null;
+    return {
+      source: 'google',
+      source_id: 'google/' + place.id,
+      name,
+      brand: null,
+      program: guessProgram(name),
+      lat: place.location?.latitude ?? null,
+      lon: place.location?.longitude ?? null,
+      street: null,
+      place: (place.formattedAddress || '').split(',').slice(-2, -1)[0]?.trim() || city || null,
+      aktuell: true,
+    };
+  }).filter(Boolean);
+}
+
+async function searchHotelsByName(env, q, lat, lon, city) {
   const withCity = city && !q.toLowerCase().includes(city.toLowerCase()) ? q + ' ' + city : q;
+
+  // Zuerst Google: aktuelle Namen, aktuelle Marken.
+  try {
+    const google = await hotelsFromGoogle(env, q, lat, lon, city);
+    if (google?.length) return google;
+  } catch { /* dann die freien Quellen */ }
 
   try {
     const found = await hotelsFromPhoton(withCity, lat, lon);
@@ -1065,6 +1122,7 @@ export async function onRequest(context) {
       const q = url.searchParams.get('q');
       if (!q || q.length < 2) return json([]);
       return json(await searchHotelsByName(
+        env,
         q,
         Number(url.searchParams.get('lat')) || null,
         Number(url.searchParams.get('lon')) || null,
@@ -1077,7 +1135,43 @@ export async function onRequest(context) {
       const lon = Number(url.searchParams.get('lon'));
       if (!lat || !lon) return fail('Koordinaten fehlen');
       const radius = Number(url.searchParams.get('radius')) || 12000;
-      return json(await searchHotels(lat, lon, radius));
+
+      // Was stayLOG schon kennt, steht mit dem gepflegten Namen ganz oben.
+      const grad = radius / 111000 + 0.05;
+      const eigene = await env.DB.prepare(
+        `SELECT id, source, source_id, name, brand, program, lat, lon, city
+           FROM hotels
+          WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?`
+      ).bind(lat - grad, lat + grad, lon - grad, lon + grad).all();
+
+      const bekannt = eigene.results.map((h) => ({
+        source: h.source,
+        source_id: h.source_id,
+        name: h.name,
+        brand: h.brand,
+        program: h.program,
+        lat: h.lat,
+        lon: h.lon,
+        place: h.city,
+        known: true,
+      }));
+
+      let gefunden = [];
+      try {
+        gefunden = await searchHotels(lat, lon, radius);
+      } catch (err) {
+        if (!bekannt.length) throw err;   // ohne eigene Treffer bleibt es ein Fehler
+      }
+
+      // Doppelte aussortieren: gleiche Kennung, gleicher Name oder dieselbe Adresse.
+      const kennungen = new Set(bekannt.map((h) => h.source_id).filter(Boolean));
+      const namen = new Set(bekannt.map((h) => slug(h.name)));
+      const frisch = gefunden.filter((h) =>
+        !kennungen.has(h.source_id)
+        && !namen.has(slug(h.name))
+        && !bekannt.some((b) => metersApart(b, h) < 120));
+
+      return json([...bekannt, ...frisch]);
     }
 
     /* ---- Hotels ---- */

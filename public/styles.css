@@ -1211,3 +1211,14 @@ details.group-card[open] > summary { margin-bottom: 4px; }
   padding: 6px 0; font-size: .88rem; cursor: pointer;
 }
 .columns-list input { width: auto; min-height: 0; }
+
+.known-mark {
+  margin-left: 9px; font-size: .7rem; letter-spacing: .04em;
+  padding: 2px 7px; border-radius: 999px;
+  background: var(--gold-wash); color: var(--gold-ink); border: 1px solid var(--gold-line);
+  white-space: nowrap;
+}
+
+.known-mark.aktuell {
+  background: transparent; color: var(--ink-soft); border-color: var(--line);
+}

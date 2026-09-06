@@ -5,6 +5,7 @@
 // Vars:     OPEN_MODE = "read" (jeder darf schauen) oder "full" (jeder darf auch
 //           eintragen). Nicht gesetzt heisst: nur mit Passwort.
 //           ADMIN_EMAIL = Adresse, die den Verwaltungsbereich sehen darf.
+//           GOOGLE_MONTHLY_LIMIT = Obergrenze fuer Google-Aufrufe pro Monat (Vorgabe 800).
 
 const UA = 'stayLOG/1.0 (persoenliches Hotel-Aufenthaltsbuch)';
 
@@ -639,6 +640,30 @@ async function runEnrichment(env, hotelId) {
   }
 }
 
+/* ---------------------------------------------- Verbrauch mitzaehlen */
+// Google kennt kein hartes Tageslimit mehr, also fuehren wir selbst Buch.
+
+const monthKey = () => new Date().toISOString().slice(0, 7);
+
+async function usageCount(env, dienst) {
+  try {
+    const row = await env.DB.prepare('SELECT anzahl FROM usage_counter WHERE dienst = ? AND monat = ?')
+      .bind(dienst, monthKey()).first();
+    return row?.anzahl || 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function usageAdd(env, dienst, wieviel) {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO usage_counter (dienst, monat, anzahl, updated_at) VALUES (?,?,?,?)
+       ON CONFLICT(dienst, monat) DO UPDATE SET anzahl = anzahl + excluded.anzahl, updated_at = excluded.updated_at`
+    ).bind(dienst, monthKey(), wieviel, now()).run();
+  } catch { /* Zaehler darf nie die App aufhalten */ }
+}
+
 /* ------------------------------------------------ Google Places (optional) */
 // Nur die Place-ID wird gespeichert. Bewertung und Bilder holen wir bei jedem
 // Aufruf frisch – Googles Bedingungen erlauben kein Zwischenspeichern.
@@ -647,36 +672,66 @@ async function googlePlace(env, hotel) {
   const key = env.GOOGLE_API_KEY;
   if (!key) return null;
 
-  const fields = [
-    'places.id', 'places.displayName', 'places.formattedAddress', 'places.rating',
-    'places.userRatingCount', 'places.googleMapsUri', 'places.websiteUri', 'places.photos',
-  ].join(',');
+  // Selbst gesetzte Obergrenze, damit keine Rechnung ueberrascht.
+  const limit = Number(env.GOOGLE_MONTHLY_LIMIT || 800);
+  const verbraucht = await usageCount(env, 'google');
+  if (verbraucht >= limit) return { limit_erreicht: true, verbraucht, limit, photos: [] };
 
-  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'X-Goog-Api-Key': key,
-      'X-Goog-FieldMask': fields,
-    },
-    body: JSON.stringify({
-      textQuery: [hotel.name, hotel.city, hotel.country].filter(Boolean).join(', '),
-      maxResultCount: 1,
-      languageCode: 'de',
-    }),
-  });
-  if (!res.ok) throw new Error('Google Places: ' + res.status);
+  let calls = 0;
+  let place = null;
 
-  const place = (await res.json()).places?.[0];
-  if (!place) return null;
+  // Kennen wir die Place-ID schon, sparen wir uns die Suche.
+  if (hotel.google_place_id) {
+    const fields = 'id,displayName,formattedAddress,rating,userRatingCount,googleMapsUri,websiteUri,photos';
+    const res = await fetch(
+      'https://places.googleapis.com/v1/places/' + encodeURIComponent(hotel.google_place_id)
+      + '?languageCode=de',
+      { headers: { 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': fields } }
+    );
+    calls += 1;
+    if (res.ok) place = await res.json();
+  }
+
+  if (!place) {
+    const fields = [
+      'places.id', 'places.displayName', 'places.formattedAddress', 'places.rating',
+      'places.userRatingCount', 'places.googleMapsUri', 'places.websiteUri', 'places.photos',
+    ].join(',');
+
+    const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Goog-Api-Key': key,
+        'X-Goog-FieldMask': fields,
+      },
+      body: JSON.stringify({
+        textQuery: [hotel.name, hotel.city, hotel.country].filter(Boolean).join(', '),
+        maxResultCount: 1,
+        languageCode: 'de',
+      }),
+    });
+    calls += 1;
+    if (!res.ok) {
+      await usageAdd(env, 'google', calls);
+      throw new Error('Google Places: ' + res.status);
+    }
+    place = (await res.json()).places?.[0];
+  }
+
+  if (!place) {
+    await usageAdd(env, 'google', calls);
+    return null;
+  }
 
   const photos = [];
-  for (const photo of (place.photos || []).slice(0, 5)) {
+  for (const photo of (place.photos || []).slice(0, 3)) {
     try {
       const media = await fetch(
         'https://places.googleapis.com/v1/' + photo.name +
         '/media?maxWidthPx=900&skipHttpRedirect=true&key=' + key
       );
+      calls += 1;
       if (!media.ok) continue;
       const body = await media.json();
       if (body.photoUri) {
@@ -689,6 +744,8 @@ async function googlePlace(env, hotel) {
       }
     } catch { /* einzelnes Bild ueberspringen */ }
   }
+
+  await usageAdd(env, 'google', calls);
 
   return {
     place_id: place.id || null,
@@ -1101,6 +1158,7 @@ export async function onRequest(context) {
           rating_count: google?.rating_count ?? null,
           maps_uri: google?.maps_uri || null,
           google_aktiv: Boolean(env.GOOGLE_API_KEY),
+          limit_erreicht: Boolean(google?.limit_erreicht),
         });
       }
 
@@ -1571,6 +1629,7 @@ export async function onRequest(context) {
     // Zaehlt, was ein Zuruecksetzen betreffen wuerde.
     if (path === '/admin/summary' && method === 'GET') {
       if (!isAdmin(env, user)) return fail('Nur der Verwalter darf das', 403);
+      const google = await usageCount(env, 'google');
       const row = await env.DB.prepare(
         `SELECT (SELECT COUNT(*) FROM stays) AS aufenthalte,
                 (SELECT COUNT(*) FROM hotels) AS hotels,
@@ -1578,7 +1637,11 @@ export async function onRequest(context) {
                 (SELECT COUNT(*) FROM photos) AS bilder,
                 (SELECT COUNT(*) FROM members) AS mitglieder`
       ).first();
-      return json(row);
+      return json({
+        ...row,
+        google_monat: google,
+        google_limit: Number(env.GOOGLE_MONTHLY_LIMIT || 800),
+      });
     }
 
     if (path === '/me/status' && method === 'PUT') {

@@ -40,6 +40,7 @@ const state = {
   sort: { key: 'date', dir: 'desc' },
   hotelPage: null,
   contextCache: {},
+  imageCache: {},
   groupBy: localStorage.getItem('staylog.group') || '',
   pollStarted: null,
   pollGaveUp: false,
@@ -420,8 +421,12 @@ async function loadAdminSummary() {
   box.textContent = 'Wird geladen …';
   try {
     const d = await api('/admin/summary');
-    box.textContent = d.aufenthalte + ' Aufenthalte · ' + d.hotels + ' Hotels · '
-      + d.kategorien + ' Zimmerkategorien · ' + d.bilder + ' Bilder · ' + d.mitglieder + ' Mitglieder';
+    box.innerHTML = '';
+    box.appendChild(el('span', null, d.aufenthalte + ' Aufenthalte · ' + d.hotels + ' Hotels · '
+      + d.kategorien + ' Zimmerkategorien · ' + d.bilder + ' Bilder · ' + d.mitglieder + ' Mitglieder'));
+    box.appendChild(document.createElement('br'));
+    box.appendChild(el('span', null,
+      'Google-Aufrufe diesen Monat: ' + d.google_monat + ' von ' + d.google_limit));
   } catch (e) {
     box.textContent = e.message;
   }
@@ -1803,7 +1808,10 @@ async function loadGallery() {
   if (['pending', 'running'].includes(state.hotel.enrich_status)) return;
 
   try {
-    const data = await api('/hotels/' + state.hotel.id + '/images');
+    // Einmal je Hotel und Sitzung – jeder Aufruf kostet bei Google Geld.
+    const cached = state.imageCache[state.hotel.id];
+    const data = cached || await api('/hotels/' + state.hotel.id + '/images');
+    if (!cached) state.imageCache[state.hotel.id] = data;
 
     if (data.rating != null) {
       rating.innerHTML = '';
@@ -1840,7 +1848,10 @@ async function loadGallery() {
       box.appendChild(fig);
     }
 
-    if (!(data.photos || []).length && data.google_aktiv) {
+    if (data.limit_erreicht) {
+      box.insertAdjacentElement('afterend', el('p', 'gallery-note',
+        'Das monatliche Limit für Bilddienste ist erreicht. Ab dem Ersten geht es weiter.'));
+    } else if (!(data.photos || []).length && data.google_aktiv) {
       box.insertAdjacentElement('afterend', el('p', 'gallery-note',
         'Zu diesem Haus wurden keine Bilder gefunden.'));
     }

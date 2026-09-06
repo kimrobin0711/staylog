@@ -111,6 +111,15 @@ CREATE TABLE IF NOT EXISTS members (
 
 CREATE UNIQUE INDEX IF NOT EXISTS members_name_idx ON members(name);
 
+-- Zaehler fuer kostenpflichtige Fremdaufrufe, je Dienst und Monat.
+CREATE TABLE IF NOT EXISTS usage_counter (
+  dienst     TEXT NOT NULL,
+  monat      TEXT NOT NULL,
+  anzahl     INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (dienst, monat)
+);
+
 CREATE INDEX IF NOT EXISTS access_log_ts_idx ON access_log(ts);
 CREATE INDEX IF NOT EXISTS access_log_ip_idx ON access_log(ip, event, ts);
 

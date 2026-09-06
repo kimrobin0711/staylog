@@ -12,11 +12,6 @@ database_id = "484f9a78-afbb-40fb-882d-7f013525da1b"
 binding = "PHOTOS"
 bucket_name = "staylog-photos"
 
-[vars]
-# Modell und Werkzeugversion lassen sich hier ohne Codeaenderung tauschen.
-ANTHROPIC_MODEL = "claude-sonnet-4-6"
-WEB_SEARCH_TOOL = "web_search_20250305"
-
 # Geheimnisse NICHT hier eintragen, sondern setzen mit:
 #   npx wrangler pages secret put ANTHROPIC_API_KEY
 #   npx wrangler pages secret put STAY_PASSWORD

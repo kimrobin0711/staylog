@@ -1212,8 +1212,45 @@ async function chooseHotel(candidate) {
   renderChosenHotel();
   applyHotelProgram();
   renderRooms();
-  watchEnrichment();
-  loadGallery();
+
+  if (state.hotel.enrich_status === 'pending') runEnrichment();
+  else { watchEnrichment(); loadGallery(); }
+}
+
+// Der Browser stösst die Recherche an und wartet auf das Ergebnis.
+async function runEnrichment() {
+  const hotelId = state.hotel.id;
+  state.pollStarted = Date.now();
+  state.pollGaveUp = false;
+  state.hotel.enrich_status = 'running';
+  renderRooms();
+  renderChosenHotel();
+
+  // Zaehlt die Sekunden im Wartetext hoch.
+  clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(() => {
+    if (state.hotel?.id === hotelId && state.hotel.enrich_status === 'running') renderRooms();
+    else clearInterval(state.pollTimer);
+  }, 5000);
+
+  try {
+    const res = await api('/hotels/' + hotelId + '/enrich?wait=1', { method: 'POST' });
+    if (state.hotel?.id !== hotelId) return;
+    state.hotel = res.hotel;
+    state.rooms = res.rooms;
+  } catch {
+    if (state.hotel?.id !== hotelId) return;
+    state.hotel.enrich_status = 'failed';
+    state.pollGaveUp = true;
+  } finally {
+    clearInterval(state.pollTimer);
+    if (state.hotel?.id === hotelId) {
+      renderChosenHotel();
+      applyHotelProgram();
+      renderRooms();
+      loadGallery();
+    }
+  }
 }
 
 function resetPicker() {
@@ -1528,14 +1565,11 @@ function renderRankWarning() {
   }
 }
 
-$('#rooms-refresh').addEventListener('click', async () => {
+$('#rooms-refresh').addEventListener('click', () => {
   if (!state.hotel) return;
   if (!confirm('Zimmerkategorien neu recherchieren? Von dir bestätigte Kategorien bleiben erhalten.')) return;
-  await api('/hotels/' + state.hotel.id + '/enrich', { method: 'POST' });
-  state.hotel.enrich_status = 'running';
   state.skipEnrichment = false;
-  renderRooms();
-  watchEnrichment();
+  runEnrichment();
 });
 
 function fillRoomSelects(rooms, placeholder) {

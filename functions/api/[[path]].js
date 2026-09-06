@@ -850,6 +850,19 @@ export async function onRequest(context) {
 
     /* ---- Hotels ---- */
 
+    // Diagnose: Zustand der Recherchen.
+    if (path === '/hotels/status' && method === 'GET') {
+      const rows = await env.DB.prepare(
+        `SELECT id, name, city, enrich_status, enrich_error, enriched_at,
+                (SELECT COUNT(*) FROM room_types r WHERE r.hotel_id = h.id) AS kategorien
+           FROM hotels h ORDER BY id DESC LIMIT 20`
+      ).all();
+      return json(rows.results.map((r) => ({
+        ...r,
+        alter_sekunden: r.enriched_at ? Math.round((Date.now() - Date.parse(r.enriched_at)) / 1000) : null,
+      })));
+    }
+
     if (path === '/hotels' && method === 'GET') {
       const rows = await env.DB.prepare(
         `SELECT h.*, COUNT(s.id) AS stay_count
@@ -888,7 +901,8 @@ export async function onRequest(context) {
         ).run();
         hotelId = res.meta.last_row_id;
         waitUntil(logEvent(env, request, 'hotel_create', user.name, b.name));
-        waitUntil(runEnrichment(env, hotelId));
+        // Die Recherche startet der Browser gleich danach selbst – Hintergrund-
+        // aufgaben werden von Cloudflare zu frueh beendet.
       }
 
       const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
@@ -1025,6 +1039,15 @@ export async function onRequest(context) {
       }
 
       if (sub === '/enrich' && method === 'POST') {
+        // ?wait=1: der Browser wartet die Recherche ab und bekommt das Ergebnis.
+        if (url.searchParams.get('wait') === '1') {
+          await runEnrichment(env, hotelId);
+          const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
+          const rooms = await env.DB.prepare(
+            'SELECT * FROM room_types WHERE hotel_id = ? ORDER BY rank, name'
+          ).bind(hotelId).all();
+          return json({ hotel, rooms: rooms.results });
+        }
         waitUntil(runEnrichment(env, hotelId));
         return json({ status: 'running' });
       }

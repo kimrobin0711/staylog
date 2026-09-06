@@ -581,7 +581,8 @@ function renderStayList() {
   if (state.view === 'rows') sortStays(list);
 
   box.innerHTML = '';
-  box.className = state.groupBy ? 'grouped' : (state.view === 'rows' ? 'rows' : 'stay-list');
+  // Der äußere Behälter ordnet nichts an – das machen die Blöcke darin.
+  box.className = state.view === 'rows' ? 'rows' : 'grouped';
 
   if (!list.length) {
     box.appendChild(el('p', 'empty', state.stays.length

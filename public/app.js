@@ -877,13 +877,14 @@ function stayDates(s) {
 
 function closeDetail() {
   $('#detail-pane').classList.remove('is-open');
-  document.querySelector('.workspace').classList.remove('has-detail');
+  $('#detail-veil').classList.remove('is-open');
   state.selected = null;
   renderStayList();
   $('#detail-body').innerHTML = '';
   $('#detail-body').appendChild(el('p', 'detail-placeholder', 'Wähle einen Aufenthalt, um alles dazu zu sehen.'));
 }
 $('#detail-close').addEventListener('click', closeDetail);
+$('#detail-veil').addEventListener('click', closeDetail);
 
 function detailHead() {
   const head = el('div', 'detail-head');
@@ -901,7 +902,7 @@ function showDetail(s) {
   box.innerHTML = '';
   box.appendChild(detailHead());
   $('#detail-pane').classList.add('is-open');
-  document.querySelector('.workspace').classList.add('has-detail');
+  $('#detail-veil').classList.add('is-open');
 
   box.appendChild(hotelLink(s.hotel_name, s.hotel_id, 'detail-title'));
   box.appendChild(el('p', 'detail-sub', [s.city, s.country].filter(Boolean).join(', ')));

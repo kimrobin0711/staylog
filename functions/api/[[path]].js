@@ -1167,7 +1167,7 @@ export async function onRequest(context) {
             }))
             .sort((a, b) => b.count - a.count),
           pairs: [...pairs.values()].sort((a, b) => b.count - a.count).slice(0, 10),
-          recent: await withDetails(env, stays.slice(0, 6)),
+          alle: await withDetails(env, stays),
         });
       }
 

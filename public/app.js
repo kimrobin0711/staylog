@@ -33,6 +33,8 @@ const state = {
   mode: '',
   editing: null,
   view: localStorage.getItem('staylog.view') || 'cards',
+  sort: { key: 'date', dir: 'desc' },
+  hotelPage: null,
   groupBy: localStorage.getItem('staylog.group') || '',
   pollStarted: null,
   pollGaveUp: false,
@@ -256,10 +258,11 @@ $('#who').addEventListener('click', () => openSettings());
 /* ------------------------------------------------------------ Navigation */
 
 function showView(name) {
-  for (const view of ['stays', 'new', 'stats']) $('#view-' + view).hidden = view !== name;
+  for (const view of ['stays', 'new', 'stats', 'hotel']) $('#view-' + view).hidden = view !== name;
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-on', t.dataset.view === name));
   document.querySelectorAll('.topnav-btn').forEach((t) => t.classList.toggle('is-on', t.dataset.view === name));
   $('#f-text').closest('.search-wrap').hidden = name !== 'stays';
+  if (name !== 'hotel') state.hotelPage = null;
   if (name === 'stats') loadStats();
   if (name === 'stays') { loadStays(); loadFilters(); }
   window.scrollTo({ top: 0 });
@@ -573,6 +576,8 @@ function renderStayList() {
 
   $('#stay-count').textContent = list.length + (list.length === 1 ? ' Aufenthalt' : ' Aufenthalte');
 
+  if (state.view === 'rows') sortStays(list);
+
   box.innerHTML = '';
   box.className = state.view === 'rows' ? 'rows' : 'stay-list';
 
@@ -635,11 +640,53 @@ function renderBatch(entries) {
   return wrap;
 }
 
+const SORT_KEYS = {
+  hotel: (s) => (s.hotel_name || '').toLowerCase(),
+  city: (s) => (s.city || '').toLowerCase(),
+  date: (s) => s.checkin || '',
+  program: (s) => [s.program, s.status_level].filter(Boolean).join(' ').toLowerCase(),
+  room: (s) => (s.received_room || '').toLowerCase(),
+  step: (s) => (s.upgrade_steps == null ? -99 : s.upgrade_steps),
+  price: (s) => (s.price == null ? -1 : s.price),
+};
+
+function sortStays(list) {
+  const get = SORT_KEYS[state.sort.key] || SORT_KEYS.date;
+  const factor = state.sort.dir === 'asc' ? 1 : -1;
+  list.sort((a, b) => {
+    const x = get(a);
+    const y = get(b);
+    if (x === y) return 0;
+    return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * factor;
+  });
+}
+
 function rowsHeader() {
   const head = el('div', 'rows-head');
-  for (const [text, cls] of [['HOTEL', ''], ['ORT', ''], ['ZEITRAUM', 'hide-s'],
-    ['PROGRAMM', 'hide-s'], ['GEBUCHT → ERHALTEN', 'hide-s'], ['UPGRADE', 'right'], ['PREIS', 'right hide-s']]) {
-    head.appendChild(el('span', cls, text));
+  const columns = [
+    ['HOTEL', 'hotel', ''],
+    ['ORT', 'city', ''],
+    ['ZEITRAUM', 'date', 'hide-s'],
+    ['PROGRAMM', 'program', 'hide-s'],
+    ['GEBUCHT → ERHALTEN', 'room', 'hide-s'],
+    ['UPGRADE', 'step', 'right'],
+    ['PREIS', 'price', 'right hide-s'],
+  ];
+  for (const [text, key, cls] of columns) {
+    const cell = el('span', cls);
+    const button = el('button', state.sort.key === key ? 'sorted' : null);
+    button.type = 'button';
+    button.appendChild(document.createTextNode(text));
+    if (state.sort.key === key) {
+      button.appendChild(el('span', null, state.sort.dir === 'asc' ? '▲' : '▼'));
+    }
+    button.addEventListener('click', () => {
+      if (state.sort.key === key) state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
+      else state.sort = { key, dir: key === 'date' || key === 'step' || key === 'price' ? 'desc' : 'asc' };
+      renderStayList();
+    });
+    cell.appendChild(button);
+    head.appendChild(cell);
   }
   return head;
 }
@@ -1002,93 +1049,117 @@ $('#edit-cancel').addEventListener('click', () => {
 
 // Beantwortet: Was bringt mein Status in genau diesem Haus?
 async function showHotel(hotelId) {
-  const box = $('#detail-body');
+  const box = $('#hotel-page');
+  state.hotelPage = hotelId;
+  showView('hotel');
   box.innerHTML = '';
-  $('#detail-pane').classList.add('is-open');
-  document.querySelector('.workspace').classList.add('has-detail');
-  box.appendChild(el('p', 'detail-placeholder', 'Wird geladen …'));
+  box.appendChild(el('p', 'empty', 'Wird geladen …'));
 
   try {
     const data = await api('/hotels/' + hotelId + '/community');
+    if (state.hotelPage !== hotelId) return;
     box.innerHTML = '';
 
-    if (state.selected) {
-      const back = el('button', 'link-btn', '← zurück zum Aufenthalt');
-      back.addEventListener('click', () => {
-        const stay = state.stays.find((s) => s.id === state.selected);
-        if (stay) showDetail(stay); else closeDetail();
-      });
-      box.appendChild(back);
+    box.appendChild(el('h1', 'hotel-title', data.hotel.name));
+    box.appendChild(el('p', 'hotel-sub', [data.hotel.city, data.hotel.country].filter(Boolean).join(', ')));
+
+    const badges = el('div', 'badge-row');
+    if (data.hotel.program) badges.appendChild(el('span', 'badge', data.hotel.program));
+    if (data.hotel.lounge === 1) badges.appendChild(el('span', 'badge', 'Lounge vorhanden'));
+    if (badges.children.length) box.appendChild(badges);
+
+    if (data.hotel.description) {
+      const desc = el('p', 'hotel-desc', data.hotel.description);
+      desc.style.marginTop = '16px';
+      box.appendChild(desc);
     }
 
-    box.appendChild(el('h3', 'detail-title', data.hotel.name));
-    box.appendChild(el('p', 'detail-sub', [data.hotel.city, data.hotel.country].filter(Boolean).join(', ')));
-
-    if (data.hotel.program) {
-      const badges = el('div', 'badge-row');
-      badges.appendChild(el('span', 'badge', data.hotel.program));
-      box.appendChild(badges);
+    const links = el('div', 'hotel-links');
+    if (data.hotel.address) links.appendChild(el('span', null, data.hotel.address));
+    if (data.hotel.website) {
+      const a = el('a', null, 'Hotelseite');
+      a.href = data.hotel.website; a.target = '_blank'; a.rel = 'noopener';
+      links.appendChild(a);
     }
+    if (links.children.length) box.appendChild(links);
 
-    // Community
-    const community = el('div', 'detail-section');
-    community.appendChild(el('h4', null, 'COMMUNITY'));
-    const grid = el('div', 'hotel-stat-grid');
-    const stat = (num, label) => {
-      const cell = el('div', 'hotel-stat');
+    // Kennzahlen
+    const kpis = section('COMMUNITY');
+    const grid = el('div', 'hotel-kpis');
+    const kpi = (num, label) => {
+      const cell = el('div', 'kpi');
       cell.appendChild(el('div', 'num', num));
       cell.appendChild(el('div', 'lbl', label));
       grid.appendChild(cell);
     };
-    stat(String(data.stays), data.stays === 1 ? 'Aufenthalt' : 'Aufenthalte');
-    stat(String(data.people), data.people === 1 ? 'Person' : 'Personen');
-
-    // Bei ganz wenigen Meldungen keine Scheingenauigkeit vorgaukeln.
+    kpi(String(data.stays), data.stays === 1 ? 'Aufenthalt' : 'Aufenthalte');
+    kpi(String(data.people), data.people === 1 ? 'Person' : 'Personen');
     if (data.stays >= 3) {
-      stat(data.upgrade_quote != null ? data.upgrade_quote + ' %' : '–', 'Upgradequote');
-      stat(data.suite_quote != null ? data.suite_quote + ' %' : '–', 'Suite-Upgrades');
+      kpi(data.upgrade_quote != null ? data.upgrade_quote + ' %' : '–', 'mit Upgrade');
+      kpi(data.suite_quote != null ? data.suite_quote + ' %' : '–', 'Suite-Upgrades');
     }
-    if (data.avg_steps != null) stat((data.avg_steps > 0 ? '+' : '') + comma(data.avg_steps), 'Ø Kategorien');
-    community.appendChild(grid);
-
+    if (data.avg_steps != null) kpi((data.avg_steps > 0 ? '+' : '') + comma(data.avg_steps), 'Ø Kategorien');
+    kpis.appendChild(grid);
     if (data.stays < 3) {
-      community.appendChild(el('p', 'sample-note',
-        data.stays === 1
-          ? 'Erst ein gemeldeter Aufenthalt – für Quoten zu wenig.'
-          : data.stays + ' gemeldete Aufenthalte – für belastbare Quoten noch zu wenig.'));
+      kpis.appendChild(el('p', 'sample-note', data.stays === 1
+        ? 'Erst ein gemeldeter Aufenthalt – für Quoten zu wenig.'
+        : data.stays + ' gemeldete Aufenthalte – für belastbare Quoten noch zu wenig.'));
     }
-    box.appendChild(community);
+    box.appendChild(kpis);
 
-    // Status-Erfahrungen
+    // Alle Aufenthalte: wer, wann, was bekommen
+    const table = section('WER HAT WAS BEKOMMEN');
+    const scroll = el('div', 'table-scroll');
+    const t = document.createElement('table');
+    t.className = 'stay-table';
+
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    for (const h of ['Datum', 'Person', 'Status', 'Gebucht → Erhalten', 'Upgrade', 'Benefits', 'Preis']) {
+      hr.appendChild(el('th', null, h));
+    }
+    thead.appendChild(hr);
+    t.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    for (const s of data.alle) tbody.appendChild(hotelStayRow(s));
+    t.appendChild(tbody);
+    scroll.appendChild(t);
+    table.appendChild(scroll);
+    box.appendChild(table);
+
+    // Zwei Spalten: Statuslevel und Benefits
+    const cols = el('div', 'hotel-cols');
+    cols.style.marginTop = '34px';
+
     if (data.by_status.length) {
-      const section = el('div', 'detail-section');
-      section.appendChild(el('h4', null, 'STATUS-ERFAHRUNGEN'));
+      const left = el('div');
+      left.appendChild(el('h3', null, 'WAS DIE STATUSLEVEL BRINGEN'));
       for (const g of data.by_status) {
         const row = el('div', 'status-line');
-        const left = el('div');
+        const info = el('div');
         if (g.status) {
           const badge = el('span', 'badge badge-status', g.status);
           badge.style.background = statusColor(g.status);
-          left.appendChild(badge);
+          info.appendChild(badge);
         } else {
-          left.appendChild(el('span', null, g.label));
+          info.appendChild(el('span', null, g.label));
         }
-        left.appendChild(el('div', 'sample-note',
+        info.appendChild(el('div', 'sample-note',
           g.stays + (g.stays === 1 ? ' Aufenthalt' : ' Aufenthalte')
           + (g.avg_steps != null ? ' · Ø ' + (g.avg_steps > 0 ? '+' : '') + comma(g.avg_steps) : '')));
-        row.appendChild(left);
+        row.appendChild(info);
         row.appendChild(el('span', 'quote', g.stays >= 3 && g.upgrade_quote != null
           ? g.upgrade_quote + ' %'
           : (g.upgrade_quote === 100 ? 'Upgrade' : g.upgrade_quote === 0 ? 'kein Upgrade' : '–')));
-        section.appendChild(row);
+        left.appendChild(row);
       }
-      box.appendChild(section);
+      cols.appendChild(left);
     }
 
-    // Häufige Upgrades
+    const right = el('div');
     if (data.pairs.length) {
-      const section = el('div', 'detail-section');
-      section.appendChild(el('h4', null, 'HÄUFIGE UPGRADES'));
+      right.appendChild(el('h3', null, 'HÄUFIGE UPGRADES'));
       for (const pair of data.pairs) {
         const row = el('div', 'pair');
         const rooms = el('div', 'pair-rooms');
@@ -1096,53 +1167,82 @@ async function showHotel(hotelId) {
         rooms.appendChild(el('div', 'to', '↓ ' + pair.received));
         row.appendChild(rooms);
         row.appendChild(el('span', 'pair-count', pair.count + '× gemeldet'));
-        section.appendChild(row);
+        right.appendChild(row);
       }
-      box.appendChild(section);
     }
+    if (right.children.length) cols.appendChild(right);
+    if (cols.children.length) box.appendChild(cols);
 
-    // Benefits
     if (data.benefits.length) {
-      const section = el('div', 'detail-section');
-      section.appendChild(el('h4', null, 'BENEFITS'));
-      for (const b of data.benefits) section.appendChild(benefitBar(b, data.stays));
-      box.appendChild(section);
+      const benefits = section('BENEFITS');
+      for (const b of data.benefits) benefits.appendChild(benefitBar(b, data.stays));
+      box.appendChild(benefits);
     }
-
-    // Letzte Erfahrungen
-    if (data.recent.length) {
-      const section = el('div', 'detail-section');
-      section.appendChild(el('h4', null, 'LETZTE ERFAHRUNGEN'));
-      const list = el('div', 'recent-list');
-      for (const s of data.recent) list.appendChild(renderStayCard(s));
-      section.appendChild(list);
-      box.appendChild(section);
-    }
-
-    const actions = el('div', 'detail-actions');
-    const filterBtn = el('button', 'btn btn-quiet', 'Alle Aufenthalte hier zeigen');
-    filterBtn.addEventListener('click', () => {
-      $('#f-country').value = data.hotel.country || '';
-      refreshPlaceSelects();
-      $('#f-city').value = data.hotel.city || '';
-      refreshPlaceSelects();
-      $('#f-hotel').value = String(hotelId);
-      closeDetail();
-      loadStays();
-    });
-    actions.appendChild(filterBtn);
-    if (data.hotel.website) {
-      const site = el('a', 'btn btn-quiet', 'Hotelseite');
-      site.href = data.hotel.website;
-      site.target = '_blank';
-      site.rel = 'noopener';
-      actions.appendChild(site);
-    }
-    box.appendChild(actions);
   } catch (e) {
     box.innerHTML = '';
-    box.appendChild(el('p', 'detail-placeholder', e.message));
+    box.appendChild(el('p', 'empty', e.message));
   }
+}
+
+function section(title) {
+  const node = el('section', 'hotel-section');
+  node.appendChild(el('h3', null, title));
+  return node;
+}
+
+// Eine Zeile der Hoteltabelle: wer, wann, welches Upgrade, welche Benefits.
+function hotelStayRow(s) {
+  const tr = document.createElement('tr');
+
+  tr.appendChild(el('td', 'c-when', stayDates(s)));
+
+  const who = document.createElement('td');
+  const person = el('div', 'who');
+  person.appendChild(el('span', 'avatar', initials(s.author)));
+  person.appendChild(document.createTextNode(s.author));
+  who.appendChild(person);
+  tr.appendChild(who);
+
+  const status = document.createElement('td');
+  if (s.status_level) {
+    const badge = el('span', 'badge badge-status', s.status_level);
+    badge.style.background = statusColor(s.status_level);
+    status.appendChild(badge);
+  } else {
+    status.appendChild(el('span', 'r-muted', '–'));
+  }
+  tr.appendChild(status);
+
+  const flow = el('td', 'c-flow');
+  flow.appendChild(el('div', 'r-muted', s.booked_room || '–'));
+  flow.appendChild(el('div', null, (s.received_room ? '↓ ' : '') + (s.received_room || '')));
+  tr.appendChild(flow);
+
+  const step = el('td', 'c-step' + (s.upgrade_steps > 0 ? ' up' : s.upgrade_steps < 0 ? ' down' : ''));
+  step.textContent = s.upgrade_steps == null ? '–'
+    : s.upgrade_steps === 0 ? 'keins' : (s.upgrade_steps > 0 ? '+' : '') + s.upgrade_steps;
+  tr.appendChild(step);
+
+  const benefits = document.createElement('td');
+  const pills = el('div', 'benefits');
+  for (const b of s.benefits || []) {
+    const pill = el('span', 'pill');
+    pill.appendChild(document.createTextNode(b.name + (b.value ? ' ' + b.value : '')));
+    pills.appendChild(pill);
+  }
+  benefits.appendChild(pills);
+  tr.appendChild(benefits);
+
+  tr.appendChild(el('td', 'c-step', s.price != null ? formatMoney(s.price, s.currency) : ''));
+
+  tr.addEventListener('click', () => {
+    showView('stays');
+    state.selected = s.id;
+    const known = state.stays.find((x) => x.id === s.id);
+    renderStayList();
+    showDetail(known || s);
+  });
+  return tr;
 }
 
 // Balken mit Quote und Stichprobe.
@@ -2103,6 +2203,7 @@ async function loadStats() {
   }
 }
 $('#stats-scope').addEventListener('change', loadStats);
+$('#hotel-back').addEventListener('click', () => showView('stays'));
 
 /* ------------------------------------------------------------- Protokoll */
 

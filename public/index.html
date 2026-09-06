@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=20260906-172834">
+<link rel="stylesheet" href="/styles.css?v=20260906-173330">
 </head>
 <body>
 
@@ -124,9 +124,9 @@
             <button type="button" id="filter-open" class="btn btn-quiet btn-filter">Filter</button>
             <span id="stay-count" class="stay-count"></span>
 
-            <label class="inline-select">Gruppieren
+            <label class="inline-select">Gruppiert nach
               <select id="group-by">
-                <option value="">nicht</option>
+                <option value="">ohne Gruppierung</option>
                 <option value="country">Land</option>
                 <option value="city">Stadt</option>
                 <option value="hotel">Hotel</option>
@@ -282,6 +282,14 @@
     </div>
   </main>
 
+  <!-- -------------------------------------------------------- Hotelseite -->
+  <main id="view-hotel" class="view" hidden>
+    <div class="hotel-shell">
+      <button type="button" id="hotel-back" class="link-btn">← zurück zu den Aufenthalten</button>
+      <div id="hotel-page"></div>
+    </div>
+  </main>
+
   <!-- --------------------------------------------------------- Auswertung -->
   <main id="view-stats" class="view" hidden>
     <div class="stats-shell">
@@ -310,6 +318,6 @@
   </nav>
 </div>
 
-<script src="/app.js?v=20260906-172834"></script>
+<script src="/app.js?v=20260906-173330"></script>
 </body>
 </html>

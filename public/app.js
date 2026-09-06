@@ -260,7 +260,10 @@ function showView(name) {
 document.querySelectorAll('.tab, .topnav-btn').forEach((button) => {
   button.addEventListener('click', () => showView(button.dataset.view));
 });
-$('#new-stay').addEventListener('click', () => showView('new'));
+$('#new-stay').addEventListener('click', () => {
+  if (!state.editing && !state.hotel) resetPicker();
+  showView('new');
+});
 $('#brand').addEventListener('click', () => showView('stays'));
 
 /* ---------------------------------------------------------- Einstellungen */
@@ -1216,19 +1219,40 @@ function resetPicker() {
   state.editing = null;
   $('#edit-banner').hidden = true;
   document.querySelector('#stay-form button[type=submit]').textContent = 'Aufenthalt eintragen';
+
   state.hotel = null;
   state.rooms = [];
   state.pendingPhotos = [];
   state.benefitValues = {};
-  $('#photo-previews').innerHTML = '';
+  state.nameHits = [];
+  state.hotelCandidates = [];
+  state.skipEnrichment = false;
+  state.programTouched = false;
+
   $('#stay-form').reset();
   $('#stay-form').hidden = true;
-  $('#picker').hidden = false;
-  $('#p-hotel').value = '';
+  $('#photo-previews').innerHTML = '';
   $('#benefit-values').innerHTML = '';
+  $('#chosen-gallery').innerHTML = '';
+  document.querySelectorAll('.gallery-note').forEach((n) => n.remove());
   $('#s-checkin').valueAsDate = new Date();
-  renderHotelOptions([]);
+  $('#rank-warning').hidden = true;
+
+  // Die Auswahl beginnt wieder beim Land.
+  $('#picker').hidden = false;
+  state.country = null;
+  state.city = null;
+  $('#p-country').value = '';
+  $('#p-city').value = '';
+  $('#p-hotel').value = '';
+  $('#country-results').innerHTML = '';
+  $('#city-results').innerHTML = '';
+  $('#hotel-results').innerHTML = '';
+  $('#hotel-count').textContent = '';
+  document.querySelector('[data-step="city"]').hidden = true;
+  document.querySelector('[data-step="hotel"]').hidden = true;
 }
+
 $('#chosen-reset').addEventListener('click', resetPicker);
 
 /* ------------------------------------------------------------- Hotelkarte */

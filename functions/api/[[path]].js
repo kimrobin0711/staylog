@@ -119,16 +119,17 @@ function guessProgram(text) {
 
 /* --------------------------------------------------------- Ortssuche OSM */
 
-// Open-Meteo findet auch Wortanfaenge, Nominatim nicht.
-async function searchCities(country, q) {
+// Open-Meteo findet auch Wortanfaenge, Nominatim nicht. Faellt Open-Meteo aus,
+// springt Nominatim ein – das findet dann nur vollstaendige Namen.
+async function citiesFromOpenMeteo(country, q) {
   const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
   url.searchParams.set('name', q);
   url.searchParams.set('count', '25');
   url.searchParams.set('language', 'de');
   url.searchParams.set('format', 'json');
 
-  const res = await fetch(url, { headers: { 'user-agent': UA } });
-  if (!res.ok) throw new Error('Ortssuche nicht erreichbar (' + res.status + ')');
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error('Open-Meteo antwortet mit ' + res.status);
   const data = await res.json();
 
   let rows = data.results || [];
@@ -142,6 +143,40 @@ async function searchCities(country, q) {
     lat: r.latitude,
     lon: r.longitude,
   }));
+}
+
+async function citiesFromNominatim(country, q) {
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('q', q);
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('limit', '10');
+  url.searchParams.set('addressdetails', '1');
+  if (country) url.searchParams.set('countrycodes', country.toLowerCase());
+
+  const res = await fetch(url.toString(), { headers: { 'user-agent': UA, 'accept-language': 'de,en' } });
+  if (!res.ok) throw new Error('Nominatim antwortet mit ' + res.status);
+  const rows = await res.json();
+
+  return rows.map((r) => ({
+    name: r.address?.city || r.address?.town || r.address?.village || r.name || r.display_name.split(',')[0],
+    country: r.address?.country || null,
+    country_code: (r.address?.country_code || '').toUpperCase() || null,
+    region: r.address?.state || null,
+    lat: Number(r.lat),
+    lon: Number(r.lon),
+  }));
+}
+
+async function searchCities(country, q) {
+  try {
+    const rows = await citiesFromOpenMeteo(country, q);
+    if (rows.length) return rows;
+  } catch { /* dann eben Nominatim */ }
+  try {
+    return await citiesFromNominatim(country, q);
+  } catch {
+    return [];
+  }
 }
 
 // Alle Hotels im Umkreis. Zwei Spiegel, falls einer klemmt.
@@ -390,6 +425,23 @@ export async function onRequest(context) {
       datenbank_verbunden: Boolean(env.DB),
       bilderspeicher_verbunden: Boolean(env.PHOTOS),
     });
+  }
+
+  // Pruefadresse: testet die Ortssuche ohne Anmeldung.
+  if (path === '/geo/ping' && method === 'GET') {
+    const q = url.searchParams.get('q') || 'frankfu';
+    const report = {};
+    try {
+      report.open_meteo = (await citiesFromOpenMeteo(null, q)).length;
+    } catch (err) {
+      report.open_meteo_fehler = String(err.message || err);
+    }
+    try {
+      report.nominatim = (await citiesFromNominatim(null, q)).length;
+    } catch (err) {
+      report.nominatim_fehler = String(err.message || err);
+    }
+    return json(report);
   }
 
   const user = whoami(request, env);

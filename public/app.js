@@ -151,19 +151,50 @@ document.querySelectorAll('.tab').forEach((tab) => {
 
 /* ------------------------------------------------ Auswahl: Land, Stadt, Hotel */
 
-function fillCountryList() {
-  const list = $('#country-list');
-  list.innerHTML = '';
-  for (const [, name] of COUNTRIES) list.appendChild(new Option(name, name));
+function renderCountryOptions() {
+  const q = $('#p-country').value.trim().toLowerCase();
+  const box = $('#country-results');
+  box.innerHTML = '';
+  if (!q) return;
+
+  const hits = COUNTRIES
+    .filter(([code, name]) => name.toLowerCase().includes(q) || code.toLowerCase() === q)
+    .slice(0, 8);
+
+  if (!hits.length) {
+    box.appendChild(el('p', 'options-empty', 'Kein Land gefunden.'));
+    return;
+  }
+  for (const [code, name] of hits) {
+    const b = el('button', 'option');
+    b.type = 'button';
+    b.appendChild(el('span', null, name));
+    b.appendChild(el('small', null, code));
+    b.addEventListener('click', () => chooseCountry(code, name));
+    box.appendChild(b);
+  }
 }
 
-$('#p-country').addEventListener('change', () => {
-  const typed = $('#p-country').value.trim().toLowerCase();
-  const hit = COUNTRIES.find(([, name]) => name.toLowerCase() === typed);
-  if (!hit) return;
-  state.country = { code: hit[0], name: hit[1] };
+function chooseCountry(code, name) {
+  state.country = { code, name };
+  $('#p-country').value = name;
+  $('#country-results').innerHTML = '';
   document.querySelector('[data-step="city"]').hidden = false;
   $('#p-city').focus();
+}
+
+$('#p-country').addEventListener('input', () => {
+  const typed = $('#p-country').value.trim().toLowerCase();
+  const exact = COUNTRIES.find(([, name]) => name.toLowerCase() === typed);
+  if (exact) { chooseCountry(exact[0], exact[1]); return; }
+  renderCountryOptions();
+});
+
+// Enter nimmt den obersten Vorschlag.
+$('#p-country').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  $('#country-results').querySelector('.option')?.click();
 });
 
 $('#p-city').addEventListener('input', debounce(async () => {
@@ -407,7 +438,6 @@ function watchEnrichment() {
 /* ------------------------------------------------------------- Formular */
 
 function buildForm() {
-  fillCountryList();
 
   const prog = $('#s-program');
   prog.innerHTML = '';

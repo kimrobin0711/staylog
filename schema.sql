@@ -20,6 +20,10 @@ CREATE TABLE IF NOT EXISTS hotels (
   website        TEXT,
   description    TEXT,
   google_place_id TEXT,
+  image_url       TEXT,                             -- Vorschaubild der Hotelseite
+  rating          REAL,
+  rating_count    INTEGER,
+  rating_at       TEXT,
   rank_reliable   INTEGER,                          -- 1 Reihenfolge gesichert, 0 unsicher
   enrich_status  TEXT NOT NULL DEFAULT 'pending',  -- pending | running | ready | failed
   enrich_error   TEXT,

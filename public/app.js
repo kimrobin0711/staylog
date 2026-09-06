@@ -2009,7 +2009,8 @@ function renderChosenHotel() {
   if (hotel.breakfast_note) links.appendChild(el('span', null, hotel.breakfast_note));
 }
 
-// Holt Bilder und Bewertung eines Hotels – einmal je Sitzung.
+// Holt Bilder und Bewertung eines Hotels. Beides liegt in der Datenbank,
+// der Zwischenspeicher spart nur den Netzweg innerhalb einer Sitzung.
 async function hotelImages(hotelId) {
   if (state.imageCache[hotelId]) return state.imageCache[hotelId];
   const data = await api('/hotels/' + hotelId + '/images');

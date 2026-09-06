@@ -139,10 +139,10 @@ function nightsBetween(a, b) {
 const BRAND_HINTS = [
   [/marriott|sheraton|westin|courtyard|renaissance|ritz.?carlton|st\.? ?regis|w hotel|aloft|moxy|ac hotel|le m[eé]ridien|autograph|delta hotels|four points|residence inn|fairfield|springhill|towneplace|element |tribute|edition|luxury collection|gaylord|protea/i, 'Marriott Bonvoy'],
   [/hilton|doubletree|hampton|embassy suites|waldorf|conrad|canopy|curio|tapestry|tru by|homewood|home2|motto|signia|lxr/i, 'Hilton Honors'],
-  [/holiday inn|intercontinental|crowne plaza|staybridge|candlewood|kimpton|hotel indigo|even hotels|voco|regent|six senses|avid/i, 'IHG One Rewards'],
-  [/hyatt|andaz|thompson hotels|alila|park hyatt|grand hyatt|caption by|urcove/i, 'World of Hyatt'],
-  [/accor|novotel|ibis|mercure|sofitel|pullman|swiss[oô]tel|m[oö]venpick|raffles|fairmont|banyan tree|mama shelter|25hours|adagio|mgallery|tribe hotel/i, 'Accor ALL'],
-  [/radisson|park inn|park plaza|country inn|prizeotel|art\'?otel/i, 'Radisson Rewards'],
+  [/holiday inn|intercontinental|crowne plaza|staybridge|candlewood|kimpton|hotel indigo|even hotels|voco|regent|six senses|avid|vignette collection|garner hotel|ruby hotel/i, 'IHG One Rewards'],
+  [/hyatt|andaz|thompson hotels|alila|park hyatt|grand hyatt|caption by|urcove|jdv by|destination by hyatt|unbound collection|the standard/i, 'World of Hyatt'],
+  [/accor|novotel|ibis|mercure|sofitel|pullman|swiss[oô]tel|m[oö]venpick|raffles|fairmont|banyan tree|mama shelter|25hours|adagio|mgallery|tribe hotel|handwritten collection|emblems collection|orient express/i, 'Accor ALL'],
+  [/radisson|park inn|park plaza|country inn|prizeotel|art\'?otel|radisson individuals|radisson collection/i, 'Radisson Rewards'],
   [/wyndham|ramada|days inn|super 8|travelodge|la quinta|howard johnson|tryp by/i, 'Wyndham Rewards'],
   [/comfort inn|quality inn|clarion|sleep inn|econo lodge|cambria|ascend/i, 'Choice Privileges'],
   [/best western|surestay|aiden by|sadie hotel|glo by/i, 'Best Western Rewards'],
@@ -1382,6 +1382,13 @@ export async function onRequest(context) {
         b.price != null && b.price !== '' ? Number(b.price) : null, b.currency || 'EUR',
         JSON.stringify(normalizeBenefits(b.benefits)), b.notes || null, now()
       ).run();
+
+      // Kennt das Hotel noch kein Programm, uebernehmen wir die Wahl des Nutzers.
+      if (b.program) {
+        waitUntil(env.DB.prepare(
+          'UPDATE hotels SET program = ? WHERE id = ? AND (program IS NULL OR program = "")'
+        ).bind(b.program, b.hotel_id).run());
+      }
 
       waitUntil(logEvent(env, request, 'stay_create', user.name, 'Hotel ' + b.hotel_id));
       return json({ id: res.meta.last_row_id });

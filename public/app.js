@@ -2137,15 +2137,21 @@ function renderRooms() {
     wait.appendChild(texts);
     waitSlot.appendChild(wait);
 
-    const skip = el('button', 'btn btn-quiet', 'nicht warten, selbst eintragen');
-    skip.type = 'button';
-    skip.addEventListener('click', () => {
-      state.skipEnrichment = true;
-      state.pollGaveUp = false;
-      clearInterval(state.pollTimer);
-      renderRooms();
-    });
-    waitSlot.appendChild(skip);
+    // Bewusst kein Knopf zum Überspringen: wer wartet, bekommt die echten
+    // Kategorien des Hauses. Nach einem Abbruch geht es unten von Hand weiter.
+    if (state.pollGaveUp) {
+      const selbst = el('button', 'btn btn-quiet', 'Kategorien selbst eintragen');
+      selbst.type = 'button';
+      selbst.addEventListener('click', () => {
+        state.skipEnrichment = true;
+        state.pollGaveUp = false;
+        clearInterval(state.pollTimer);
+        renderRooms();
+        $('#rooms-box').open = true;
+        $('#room-new').focus();
+      });
+      waitSlot.appendChild(selbst);
+    }
 
     fillRoomSelects([], state.pollGaveUp ? 'Recherche abgebrochen' : 'wird recherchiert …');
     return;

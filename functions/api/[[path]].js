@@ -119,67 +119,123 @@ function guessProgram(text) {
 
 /* --------------------------------------------------------- Ortssuche OSM */
 
+// Open-Meteo findet auch Wortanfaenge, Nominatim nicht.
 async function searchCities(country, q) {
-  const url = new URL('https://nominatim.openstreetmap.org/search');
-  url.searchParams.set('q', q);
-  url.searchParams.set('format', 'jsonv2');
-  url.searchParams.set('limit', '8');
-  url.searchParams.set('addressdetails', '1');
-  if (country) url.searchParams.set('countrycodes', country.toLowerCase());
+  const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
+  url.searchParams.set('name', q);
+  url.searchParams.set('count', '25');
+  url.searchParams.set('language', 'de');
+  url.searchParams.set('format', 'json');
 
-  const res = await fetch(url, { headers: { 'user-agent': UA, 'accept-language': 'de,en' } });
+  const res = await fetch(url, { headers: { 'user-agent': UA } });
   if (!res.ok) throw new Error('Ortssuche nicht erreichbar (' + res.status + ')');
-  const rows = await res.json();
+  const data = await res.json();
 
-  return rows
-    .filter((r) => ['city', 'town', 'village', 'municipality', 'suburb', 'administrative'].includes(r.type) || r.category === 'place')
-    .map((r) => ({
-      name: r.address?.city || r.address?.town || r.address?.village || r.name || r.display_name.split(',')[0],
-      country: r.address?.country || null,
-      country_code: (r.address?.country_code || '').toUpperCase() || null,
-      label: r.display_name,
-      lat: Number(r.lat),
-      lon: Number(r.lon),
-    }));
+  let rows = data.results || [];
+  if (country) rows = rows.filter((r) => (r.country_code || '').toUpperCase() === country.toUpperCase());
+
+  return rows.slice(0, 10).map((r) => ({
+    name: r.name,
+    country: r.country || null,
+    country_code: (r.country_code || '').toUpperCase() || null,
+    region: [r.admin1, r.admin2].filter(Boolean)[0] || null,
+    lat: r.latitude,
+    lon: r.longitude,
+  }));
 }
 
-async function searchHotels(lat, lon, radius = 12000) {
-  const query = `[out:json][timeout:25];
-(
-  node["tourism"="hotel"]["name"](around:${radius},${lat},${lon});
-  way["tourism"="hotel"]["name"](around:${radius},${lat},${lon});
-);
-out center tags 300;`;
+// Alle Hotels im Umkreis. Zwei Spiegel, falls einer klemmt.
+const OVERPASS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
 
-  const res = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': UA },
-    body: 'data=' + encodeURIComponent(query),
-  });
-  if (!res.ok) throw new Error('Hotelsuche nicht erreichbar (' + res.status + ')');
-  const data = await res.json();
+async function searchHotels(lat, lon, radius = 15000) {
+  const query = `[out:json][timeout:30];
+(
+  node["tourism"~"^(hotel|resort)$"]["name"](around:${radius},${lat},${lon});
+  way["tourism"~"^(hotel|resort)$"]["name"](around:${radius},${lat},${lon});
+);
+out tags center 400;`;
+
+  let data = null;
+  let lastError = null;
+
+  for (const endpoint of OVERPASS) {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': UA },
+        body: 'data=' + encodeURIComponent(query),
+      });
+      if (!res.ok) { lastError = 'Antwort ' + res.status; continue; }
+      const parsed = await res.json();
+      if (parsed.remark) { lastError = parsed.remark; continue; }
+      data = parsed;
+      break;
+    } catch (err) {
+      lastError = String(err.message || err);
+    }
+  }
+
+  if (!data) throw new Error('Hotelsuche nicht erreichbar: ' + (lastError || 'unbekannt'));
 
   const seen = new Set();
   const out = [];
-  for (const el of data.elements || []) {
-    const t = el.tags || {};
-    const name = t.name;
+  for (const element of data.elements || []) {
+    const tags = element.tags || {};
+    const name = tags.name;
     if (!name || seen.has(name.toLowerCase())) continue;
     seen.add(name.toLowerCase());
-    const brand = t.brand || t.operator || null;
+    const brand = tags.brand || tags.operator || null;
     out.push({
       source: 'osm',
-      source_id: el.type + '/' + el.id,
+      source_id: element.type + '/' + element.id,
       name,
       brand,
       program: guessProgram(brand) || guessProgram(name),
-      lat: el.lat ?? el.center?.lat ?? null,
-      lon: el.lon ?? el.center?.lon ?? null,
-      street: [t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' ') || null,
+      lat: element.lat ?? element.center?.lat ?? null,
+      lon: element.lon ?? element.center?.lon ?? null,
+      street: [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' ') || null,
     });
   }
   out.sort((a, b) => (b.program ? 1 : 0) - (a.program ? 1 : 0) || a.name.localeCompare(b.name));
   return out;
+}
+
+// Zweite Quelle: gezielt nach dem getippten Namen suchen.
+async function searchHotelsByName(q, lat, lon) {
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('q', q);
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('limit', '15');
+  url.searchParams.set('extratags', '1');
+  if (lat && lon) {
+    const d = 0.35;
+    url.searchParams.set('viewbox', [lon - d, lat + d, lon + d, lat - d].join(','));
+    url.searchParams.set('bounded', '1');
+  }
+
+  const res = await fetch(url, { headers: { 'user-agent': UA, 'accept-language': 'de,en' } });
+  if (!res.ok) return [];
+  const rows = await res.json();
+
+  return rows
+    .filter((r) => r.category === 'tourism' || r.type === 'hotel' || r.extratags?.tourism)
+    .map((r) => {
+      const brand = r.extratags?.brand || r.extratags?.operator || null;
+      const name = r.name || r.display_name.split(',')[0];
+      return {
+        source: 'osm',
+        source_id: (r.osm_type || 'node') + '/' + r.osm_id,
+        name,
+        brand,
+        program: guessProgram(brand) || guessProgram(name),
+        lat: Number(r.lat),
+        lon: Number(r.lon),
+        street: null,
+      };
+    });
 }
 
 /* ------------------------------------------- Zimmerkategorien per Claude */
@@ -362,6 +418,16 @@ export async function onRequest(context) {
       const q = url.searchParams.get('q');
       if (!q || q.length < 2) return json([]);
       return json(await searchCities(url.searchParams.get('country'), q));
+    }
+
+    if (path === '/geo/hotel-search' && method === 'GET') {
+      const q = url.searchParams.get('q');
+      if (!q || q.length < 3) return json([]);
+      return json(await searchHotelsByName(
+        q,
+        Number(url.searchParams.get('lat')) || null,
+        Number(url.searchParams.get('lon')) || null
+      ));
     }
 
     if (path === '/geo/hotels' && method === 'GET') {

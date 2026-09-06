@@ -439,6 +439,21 @@ Regeln zur Reihenfolge – das ist der wichtigste Teil:
 - Kannst du die Reihenfolge nicht belegen, setze "rank_reliable": false und vergib die
   Raenge in der Reihenfolge, in der die Kategorien auf der Seite stehen.
 
+Regeln zum Treueprogramm:
+- "program" ist das Programm, in dem der Aufenthalt zaehlt. Moegliche Werte sind
+  "Marriott Bonvoy", "Hilton Honors", "IHG One Rewards", "World of Hyatt", "Accor ALL",
+  "Radisson Rewards", "Wyndham Rewards", "Choice Privileges", "Best Western Rewards",
+  "GHA Discovery", "Melia Rewards", "Scandic Friends".
+- Achte besonders auf weiche Marken. Viele eigenstaendig klingende Haeuser gehoeren ueber
+  eine Mitgliedschaft zu einer Kette. Typische Zusaetze im offiziellen Namen sind
+  "a member of Radisson Individuals", "Autograph Collection", "Tribute Portfolio",
+  "Curio Collection by Hilton", "Tapestry Collection", "Vignette Collection", "MGallery",
+  "Handwritten Collection", "The Unbound Collection by Hyatt", "JdV by Hyatt",
+  "Worldhotels", "Ascend Hotel Collection", "BW Premier Collection".
+- Laesst der Alltagsname keine Kette erkennen, suche ausdruecklich nach so einer
+  Zugehoerigkeit. Der offizielle Name traegt den Zusatz oft, der gebraeuchliche nicht.
+- Nur wenn das Haus zu keiner Kette und keinem Programm gehoert, setze null.
+
 Weitere Regeln:
 - "type" ist "room" oder "suite".
 - Optionale Felder duerfen null sein. Erfinde nichts, um sie zu fuellen.
@@ -1274,6 +1289,24 @@ export async function onRequest(context) {
       }
 
       if (sub === '/enrich' && method === 'POST') {
+        // Eine erneute Recherche ist nur einmal im Monat je Hotel erlaubt.
+        const stand = await env.DB.prepare(
+          'SELECT enrich_status, enriched_at FROM hotels WHERE id = ?'
+        ).bind(hotelId).first();
+
+        if (stand?.enrich_status === 'ready' && stand.enriched_at) {
+          const alter = Date.now() - Date.parse(stand.enriched_at);
+          const sperre = 30 * 86400000;
+          if (alter < sperre) {
+            const frei = new Date(Date.parse(stand.enriched_at) + sperre);
+            return json({
+              gesperrt: true,
+              wieder_ab: frei.toISOString(),
+              tage: Math.ceil((sperre - alter) / 86400000),
+            }, 429);
+          }
+        }
+
         // ?wait=1: der Browser wartet die Recherche ab und bekommt das Ergebnis.
         if (url.searchParams.get('wait') === '1') {
           await runEnrichment(env, hotelId);

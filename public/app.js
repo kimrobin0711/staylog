@@ -2154,6 +2154,7 @@ function renderRooms() {
     }
 
     fillRoomSelects([], state.pollGaveUp ? 'Recherche abgebrochen' : 'wird recherchiert …');
+    updateRefreshNote();
     return;
   }
 
@@ -2233,6 +2234,7 @@ function renderRooms() {
 
   fillRoomSelects(rooms);
   renderRankWarning();
+  updateRefreshNote();
 }
 
 // Reihenfolge tauschen und gleich als geprüft speichern.
@@ -2269,12 +2271,66 @@ function renderRankWarning() {
   }
 }
 
-$('#rooms-refresh').addEventListener('click', () => {
+$('#rooms-refresh').addEventListener('click', async () => {
   if (!state.hotel) return;
-  if (!confirm('Zimmerkategorien neu recherchieren? Von dir bestätigte Kategorien bleiben erhalten.')) return;
-  state.skipEnrichment = false;
-  runEnrichment();
+  if (!confirm('Zimmerkategorien neu recherchieren? Von dir bestätigte Kategorien bleiben erhalten.\n\nDas ist einmal im Monat je Hotel möglich.')) return;
+
+  const note = $('#rooms-refresh-note');
+  try {
+    // Erst anfragen: der Server sagt, ob die Monatssperre greift.
+    const res = await fetch('/api/hotels/' + state.hotel.id + '/enrich?wait=1', {
+      method: 'POST',
+      headers: {
+        'x-stay-pass': state.pass,
+        'x-stay-user': encodeURIComponent(state.email || state.me || ''),
+      },
+    });
+    const data = await res.json();
+
+    if (res.status === 429 && data.gesperrt) {
+      note.textContent = 'Zuletzt vor Kurzem recherchiert. Wieder möglich in '
+        + data.tage + (data.tage === 1 ? ' Tag.' : ' Tagen.');
+      return;
+    }
+    if (!res.ok) throw new Error(data.error || 'Das hat nicht geklappt');
+
+    state.hotel = data.hotel;
+    state.rooms = data.rooms;
+    state.skipEnrichment = false;
+    note.textContent = '';
+    renderChosenHotel();
+    applyHotelProgram();
+    renderRooms();
+    delete state.imageCache[state.hotel.id];
+    loadGallery();
+  } catch (e) {
+    note.textContent = e.message;
+  }
 });
+
+// Zeigt an, ob eine neue Recherche gerade möglich ist.
+function updateRefreshNote() {
+  const note = $('#rooms-refresh-note');
+  const knopf = $('#rooms-refresh');
+  const hotel = state.hotel;
+  if (!hotel) return;
+
+  const laeuft = ['pending', 'running'].includes(hotel.enrich_status);
+  knopf.disabled = laeuft;
+
+  if (laeuft) { note.textContent = ''; return; }
+
+  if (hotel.enrich_status === 'ready' && hotel.enriched_at) {
+    const tage = Math.ceil((30 * 86400000 - (Date.now() - Date.parse(hotel.enriched_at))) / 86400000);
+    if (tage > 0) {
+      knopf.disabled = true;
+      note.textContent = 'Zuletzt am ' + formatDate(hotel.enriched_at)
+        + ' recherchiert. Wieder möglich in ' + tage + (tage === 1 ? ' Tag.' : ' Tagen.');
+      return;
+    }
+  }
+  note.textContent = '';
+}
 
 // Schlüsselkarte, die immer wieder in den Türleser gleitet.
 function keycardAnimation() {

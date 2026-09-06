@@ -17,6 +17,20 @@ const fail = (message, status = 400) => json({ error: message }, status);
 
 const now = () => new Date().toISOString();
 
+// Benefits sind {name, value}. Aeltere Eintraege sind reine Zeichenketten.
+function normalizeBenefits(raw) {
+  let list = raw;
+  if (typeof raw === 'string') {
+    try { list = JSON.parse(raw); } catch { return []; }
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((b) => (typeof b === 'string'
+      ? { name: b, value: null }
+      : { name: String(b.name || '').trim(), value: b.value ? String(b.value).trim() : null }))
+    .filter((b) => b.name);
+}
+
 // Das gemeinsame Passwort oeffnet die Tuer. Wer zum ersten Mal kommt, legt sich
 // mit Adresse und Namen selbst an – danach ist die Adresse die feste Kennung.
 
@@ -813,6 +827,59 @@ export async function onRequest(context) {
         });
       }
 
+      if (sub === '/community' && method === 'GET') {
+        const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
+        if (!hotel) return fail('Hotel nicht gefunden', 404);
+
+        const rows = await env.DB.prepare(
+          'SELECT * FROM stays WHERE hotel_id = ? ORDER BY checkin DESC'
+        ).bind(hotelId).all();
+        const stays = rows.results;
+
+        const withRank = stays.filter((s) => s.upgrade_steps != null);
+        const upgraded = withRank.filter((s) => s.upgrade_steps > 0);
+        const bigUpgrade = withRank.filter((s) => s.upgrade_steps > 1);
+
+        const benefitCount = new Map();
+        const benefitValues = new Map();
+        const pairs = new Map();
+
+        for (const s of stays) {
+          for (const b of normalizeBenefits(s.benefits)) {
+            benefitCount.set(b.name, (benefitCount.get(b.name) || 0) + 1);
+            if (b.value) {
+              if (!benefitValues.has(b.name)) benefitValues.set(b.name, []);
+              benefitValues.get(b.name).push(b.value);
+            }
+          }
+          if (s.booked_room && s.received_room) {
+            const key = s.booked_room + ' → ' + s.received_room;
+            const entry = pairs.get(key) || { booked: s.booked_room, received: s.received_room, count: 0, steps: s.upgrade_steps };
+            entry.count += 1;
+            pairs.set(key, entry);
+          }
+        }
+
+        return json({
+          hotel,
+          stays: stays.length,
+          upgrade_quote: stays.length ? Math.round((upgraded.length / stays.length) * 100) : null,
+          mehr_als_eine: stays.length ? Math.round((bigUpgrade.length / stays.length) * 100) : null,
+          avg_steps: withRank.length
+            ? Math.round((withRank.reduce((sum, s) => sum + s.upgrade_steps, 0) / withRank.length) * 10) / 10
+            : null,
+          benefits: [...benefitCount.entries()]
+            .map(([name, count]) => ({
+              name,
+              count,
+              quote: Math.round((count / stays.length) * 100),
+              values: (benefitValues.get(name) || []).slice(0, 8),
+            }))
+            .sort((a, b) => b.count - a.count),
+          pairs: [...pairs.values()].sort((a, b) => b.count - a.count),
+        });
+      }
+
       if (sub === '/enrich' && method === 'POST') {
         waitUntil(runEnrichment(env, hotelId));
         return json({ status: 'running' });
@@ -887,7 +954,7 @@ export async function onRequest(context) {
         }
         for (const s of stays) {
           s.photos = byStay.get(s.id) || [];
-          s.benefits = s.benefits ? JSON.parse(s.benefits) : [];
+          s.benefits = normalizeBenefits(s.benefits);
         }
       }
       return json(stays);
@@ -914,7 +981,7 @@ export async function onRequest(context) {
         b.checkin || null, b.checkout || null, nightsBetween(b.checkin, b.checkout),
         b.booked_room || null, bookedRank, b.received_room || null, receivedRank, steps,
         b.price != null && b.price !== '' ? Number(b.price) : null, b.currency || 'EUR',
-        JSON.stringify(b.benefits || []), b.notes || null, now()
+        JSON.stringify(normalizeBenefits(b.benefits)), b.notes || null, now()
       ).run();
 
       waitUntil(logEvent(env, request, 'stay_create', user.name, 'Hotel ' + b.hotel_id));
@@ -956,6 +1023,41 @@ export async function onRequest(context) {
 
     /* ---- Auswertung ---- */
 
+    // Werte fuer die abhaengigen Filter, jeweils nur was wirklich vorkommt.
+    if (path === '/filters' && method === 'GET') {
+      const rows = await env.DB.prepare(
+        `SELECT DISTINCT h.country, h.country_code, h.city, h.id AS hotel_id, h.name AS hotel_name,
+                s.program, s.status_level, s.author
+           FROM stays s JOIN hotels h ON h.id = s.hotel_id`
+      ).all();
+
+      const places = [];
+      const programs = new Set();
+      const statuses = new Set();
+      const people = new Set();
+
+      for (const r of rows.results) {
+        if (r.program) programs.add(r.program);
+        if (r.status_level) statuses.add(r.status_level);
+        if (r.author) people.add(r.author);
+        places.push({
+          country: r.country || 'ohne Land',
+          city: r.city || 'ohne Stadt',
+          hotel_id: r.hotel_id,
+          hotel_name: r.hotel_name,
+        });
+      }
+      const allPeople = await env.DB.prepare('SELECT name FROM members ORDER BY name').all();
+      for (const m of allPeople.results) people.add(m.name);
+
+      return json({
+        places,
+        programs: [...programs].sort(),
+        statuses: [...statuses].sort(),
+        people: [...people].sort(),
+      });
+    }
+
     if (path === '/tree' && method === 'GET') {
       const rows = await env.DB.prepare(
         `SELECT h.country, h.country_code, h.city, h.id AS hotel_id, h.name AS hotel_name,
@@ -985,52 +1087,68 @@ export async function onRequest(context) {
     }
 
     if (path === '/stats' && method === 'GET') {
-      const byStatus = await env.DB.prepare(
-        `SELECT program, status_level,
-                COUNT(*) AS stays,
-                SUM(CASE WHEN upgrade_steps > 0 THEN 1 ELSE 0 END) AS upgraded,
-                ROUND(AVG(CASE WHEN upgrade_steps IS NOT NULL THEN upgrade_steps END), 2) AS avg_steps
-           FROM stays WHERE program IS NOT NULL
-          GROUP BY program, status_level ORDER BY program, status_level`
-      ).all();
-
-      const byCity = await env.DB.prepare(
-        `SELECT h.city, h.country_code, s.program,
-                COUNT(*) AS stays,
-                ROUND(AVG(CASE WHEN s.upgrade_steps IS NOT NULL THEN s.upgrade_steps END), 2) AS avg_steps
-           FROM stays s JOIN hotels h ON h.id = s.hotel_id
-          GROUP BY h.city, s.program HAVING stays > 0 ORDER BY stays DESC LIMIT 40`
-      ).all();
-
-      const totals = await env.DB.prepare(
-        `SELECT COUNT(*) AS stays,
-                COUNT(DISTINCT hotel_id) AS hotels,
-                SUM(CASE WHEN upgrade_steps > 0 THEN 1 ELSE 0 END) AS upgraded,
-                SUM(nights) AS nights
-           FROM stays`
-      ).first();
-
-      return json({ totals, byStatus: byStatus.results, byCity: byCity.results });
-    }
-
-    if (path === '/log' && method === 'GET') {
-      const admin = env.ADMIN_PASSWORD || '';
-      if (!admin) return fail('Fuer das Protokoll ist kein ADMIN_PASSWORD gesetzt', 403);
-      if ((request.headers.get('x-stay-admin') || '') !== admin) {
-        await logEvent(env, request, 'login_fail', user.name, 'Protokoll: falsches Adminpasswort');
-        return fail('Das Adminpasswort stimmt nicht', 403);
-      }
+      const author = url.searchParams.get('author');
       const rows = await env.DB.prepare(
-        'SELECT * FROM access_log ORDER BY id DESC LIMIT 300'
-      ).all();
-      return json({ days: LOG_DAYS, entries: rows.results });
-    }
+        `SELECT s.*, h.name AS hotel_name, h.city, h.country
+           FROM stays s JOIN hotels h ON h.id = s.hotel_id
+          ${author ? 'WHERE s.author = ?' : ''}`
+      ).bind(...(author ? [author] : [])).all();
+      const stays = rows.results;
 
-    if (path === '/me/status' && method === 'PUT') {
-      const body = await request.json();
-      await env.DB.prepare('UPDATE members SET statuses = ?, updated_at = ? WHERE email = ?')
-        .bind(JSON.stringify(body.statuses || {}), now(), user.email).run();
-      return json({ gespeichert: true });
+      const group = new Map();
+      for (const s of stays) {
+        const key = (s.program || 'ohne Programm') + ' · ' + (s.status_level || 'ohne Status');
+        if (!group.has(key)) {
+          group.set(key, {
+            program: s.program || 'ohne Programm',
+            status: s.status_level || 'ohne Status',
+            stays: 0, upgraded: 0, steps: [], benefits: new Map(), hotels: new Map(),
+          });
+        }
+        const g = group.get(key);
+        g.stays += 1;
+        if (s.upgrade_steps != null) {
+          g.steps.push(s.upgrade_steps);
+          if (s.upgrade_steps > 0) {
+            g.upgraded += 1;
+            const h = g.hotels.get(s.hotel_name) || { name: s.hotel_name, city: s.city, count: 0, best: 0 };
+            h.count += 1;
+            h.best = Math.max(h.best, s.upgrade_steps);
+            g.hotels.set(s.hotel_name, h);
+          }
+        }
+        for (const b of normalizeBenefits(s.benefits)) {
+          g.benefits.set(b.name, (g.benefits.get(b.name) || 0) + 1);
+        }
+      }
+
+      const groups = [...group.values()].map((g) => ({
+        program: g.program,
+        status: g.status,
+        stays: g.stays,
+        upgrade_quote: g.stays ? Math.round((g.upgraded / g.stays) * 100) : null,
+        avg_steps: g.steps.length
+          ? Math.round((g.steps.reduce((a, b) => a + b, 0) / g.steps.length) * 10) / 10
+          : null,
+        benefits: [...g.benefits.entries()]
+          .map(([name, count]) => ({ name, quote: Math.round((count / g.stays) * 100) }))
+          .sort((a, b) => b.quote - a.quote)
+          .slice(0, 6),
+        top_hotels: [...g.hotels.values()].sort((a, b) => b.count - a.count || b.best - a.best).slice(0, 3),
+      })).sort((a, b) => b.stays - a.stays);
+
+      const withRank = stays.filter((s) => s.upgrade_steps != null);
+      return json({
+        totals: {
+          stays: stays.length,
+          hotels: new Set(stays.map((s) => s.hotel_id)).size,
+          nights: stays.reduce((sum, s) => sum + (s.nights || 0), 0),
+          upgrade_quote: stays.length
+            ? Math.round((withRank.filter((s) => s.upgrade_steps > 0).length / stays.length) * 100)
+            : null,
+        },
+        groups,
+      });
     }
 
     if (path === '/people' && method === 'GET') {

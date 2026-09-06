@@ -12,21 +12,23 @@ const state = {
   pass: localStorage.getItem('staylog.pass') || '',
   me: localStorage.getItem('staylog.name') || '',
   email: localStorage.getItem('staylog.email') || '',
-  country: null,
-  city: null,
+  myStatus: JSON.parse(localStorage.getItem('staylog.status') || '{}'),
+  draftStatus: {},
+  addingStatus: false,
   hotel: null,
+  city: null,
+  country: null,
   rooms: [],
   hotelCandidates: [],
+  nameHits: [],
   pendingPhotos: [],
+  benefitValues: {},
   pollTimer: null,
   skipEnrichment: false,
-  myStatus: JSON.parse(localStorage.getItem('staylog.status') || '{}'),
   programTouched: false,
-  addingStatus: false,
-  draftStatus: {},
-  nameHits: [],
   stays: [],
-  pick: {},
+  places: [],
+  selected: null,
 };
 
 /* ------------------------------------------------------------ Stammdaten */
@@ -47,18 +49,43 @@ const PROGRAMS = {
   'Ohne Programm':        { color: '#7A7A72', status: [] },
 };
 
-// Rueckfall, solange die Recherche noch laeuft oder nichts gefunden hat.
+// Dezente Eigenfarbe je Statusstufe.
+const STATUS_COLORS = [
+  [/ambassador|titanium|globalist|limitless|reserve|diamond select/i, '#2B3442'],
+  [/diamond|vip/i, '#4E6E93'],
+  [/platinum/i, '#6E7B8A'],
+  [/gold/i, '#B0842F'],
+  [/silver|premium|explorist/i, '#8A8F96'],
+  [/blue|club|classic|member|discoverist|level/i, '#8A9099'],
+];
+const statusColor = (level) => {
+  if (!level) return '#8A9099';
+  for (const [re, color] of STATUS_COLORS) if (re.test(level)) return color;
+  return '#8A9099';
+};
+
 const FALLBACK_ROOMS = {
   'Marriott Bonvoy': ['Guest Room', 'Deluxe Room', 'Executive / Club Room', 'Junior Suite', 'Suite'],
   'Hilton Honors':   ['Standard Room', 'Deluxe Room', 'Executive Room', 'Junior Suite', 'Suite'],
   'default':         ['Standardzimmer', 'Komfortzimmer', 'Deluxe', 'Junior Suite', 'Suite'],
 };
 
+// hint = Platzhalter für den Zusatzwert. null heißt: kein Wert sinnvoll.
 const BENEFITS = [
-  'Frühstück', 'Lounge-Zugang', 'Late Check-out', 'Early Check-in',
-  'Welcome Amenity', 'Willkommensgetränk', 'Punkte statt Frühstück',
-  'Suite-Upgrade', 'Höhere Etage', 'Bessere Aussicht', 'Wäscheservice', 'Parken frei',
+  ['Frühstück', 'für 2 Personen'],
+  ['Lounge Access', null],
+  ['Late Checkout', '16:00'],
+  ['Early Check-in', '11:00'],
+  ['Welcome Gift', 'Wein und Pralinen'],
+  ['Getränke', null],
+  ['F&B Credit', '50 €'],
+  ['Parkplatz', 'kostenfrei'],
+  ['Bonuspunkte', '1.000'],
+  ['Höhere Etage', null],
+  ['Bessere Aussicht', null],
+  ['Sonstiges', 'was genau'],
 ];
+const benefitHint = (name) => (BENEFITS.find(([b]) => b === name) || [])[1] || null;
 
 const COUNTRIES = [
   ['DE', 'Deutschland'], ['AT', 'Österreich'], ['CH', 'Schweiz'], ['IT', 'Italien'],
@@ -75,6 +102,50 @@ const COUNTRIES = [
   ['CN', 'China'], ['HK', 'Hongkong'], ['IN', 'Indien'], ['AU', 'Australien'],
   ['NZ', 'Neuseeland'], ['MV', 'Malediven'], ['LK', 'Sri Lanka'],
 ];
+
+/* ------------------------------------------------- Tolerante Namenssuche */
+
+function normalize(text) {
+  return (text || '')
+    .toLowerCase().replace(/ß/g, 'ss')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function distance(a, b) {
+  if (a === b) return 0;
+  if (!a.length || !b.length) return Math.max(a.length, b.length);
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+function fuzzyMatch(name, query) {
+  const words = normalize(name).split(' ').filter(Boolean);
+  const parts = normalize(query).split(' ').filter(Boolean);
+  if (!parts.length) return true;
+  return parts.every((part) => {
+    const tolerance = part.length <= 4 ? 0 : part.length <= 7 ? 1 : 2;
+    return words.some((word) => {
+      if (word.includes(part) || part.includes(word)) return true;
+      if (!tolerance) return false;
+      if (distance(word, part) <= tolerance) return true;
+      return distance(word.slice(0, part.length + tolerance), part) <= tolerance;
+    });
+  });
+}
+
+const debounce = (fn, ms = 300) => {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+};
 
 /* ------------------------------------------------------------------ Netz */
 
@@ -93,61 +164,6 @@ async function api(path, options = {}) {
   return body;
 }
 
-/* ------------------------------------------------- Tolerante Namenssuche */
-
-// Akzente weg, Sonderzeichen weg, alles klein.
-function normalize(text) {
-  return (text || '')
-    .toLowerCase()
-    .replace(/ß/g, 'ss')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-function distance(a, b) {
-  if (a === b) return 0;
-  if (!a.length || !b.length) return Math.max(a.length, b.length);
-  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    const current = [i];
-    for (let j = 1; j <= b.length; j++) {
-      current[j] = Math.min(
-        previous[j] + 1,
-        current[j - 1] + 1,
-        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
-      );
-    }
-    previous = current;
-  }
-  return previous[b.length];
-}
-
-// Jedes getippte Wort muss irgendein Wort im Namen treffen –
-// als Anfang, als Teil, oder mit ein bis zwei Abweichungen.
-function fuzzyMatch(name, query) {
-  const words = normalize(name).split(' ').filter(Boolean);
-  const parts = normalize(query).split(' ').filter(Boolean);
-  if (!parts.length) return true;
-
-  return parts.every((part) => {
-    const tolerance = part.length <= 4 ? 0 : part.length <= 7 ? 1 : 2;
-    return words.some((word) => {
-      if (word.includes(part) || part.includes(word)) return true;
-      if (!tolerance) return false;
-      if (distance(word, part) <= tolerance) return true;
-      // auch der Wortanfang zaehlt, damit "meriden" auf "meridien" passt
-      return distance(word.slice(0, part.length + tolerance), part) <= tolerance;
-    });
-  });
-}
-
-const debounce = (fn, ms = 350) => {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
-};
-
 /* -------------------------------------------------------------- Anmeldung */
 
 async function signIn(pass, login, name) {
@@ -160,7 +176,6 @@ async function signIn(pass, login, name) {
     body: JSON.stringify(name ? { name } : {}),
   });
 
-  // Erster Besuch: die Anmeldemaske fragt nach dem Namen und ruft nochmal auf.
   if (res.needsName) {
     $('#gate-newcomer').hidden = false;
     $('#gate-name').focus();
@@ -178,23 +193,20 @@ async function signIn(pass, login, name) {
   localStorage.setItem('staylog.pass', pass);
   localStorage.setItem('staylog.name', state.me);
   localStorage.setItem('staylog.email', state.email || '');
+
   $('#gate').hidden = true;
   $('#app').hidden = false;
   $('#who').textContent = state.me;
   buildForm();
+  loadFilters();
   loadStays();
-  loadTree();
 }
 
 $('#gate-go').addEventListener('click', async () => {
   const err = $('#gate-error');
   err.hidden = true;
   try {
-    await signIn(
-      $('#gate-key').value.trim(),
-      $('#gate-email').value.trim(),
-      $('#gate-name').value.trim()
-    );
+    await signIn($('#gate-key').value.trim(), $('#gate-email').value.trim(), $('#gate-name').value.trim());
   } catch (e) {
     err.textContent = e.message;
     err.hidden = false;
@@ -212,9 +224,26 @@ $('#who').addEventListener('click', () => {
   location.reload();
 });
 
+/* ------------------------------------------------------------ Navigation */
+
+function showView(name) {
+  for (const view of ['stays', 'new', 'stats']) $('#view-' + view).hidden = view !== name;
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-on', t.dataset.view === name));
+  document.querySelectorAll('.topnav-btn').forEach((t) => t.classList.toggle('is-on', t.dataset.view === name));
+  $('#f-text').closest('.search-wrap').hidden = name !== 'stays';
+  if (name === 'stats') loadStats();
+  if (name === 'stays') { loadStays(); loadFilters(); }
+  window.scrollTo({ top: 0 });
+}
+
+document.querySelectorAll('.tab, .topnav-btn').forEach((button) => {
+  button.addEventListener('click', () => showView(button.dataset.view));
+});
+$('#new-stay').addEventListener('click', () => showView('new'));
+$('#brand').addEventListener('click', () => showView('stays'));
+
 /* ---------------------------------------------------------- Einstellungen */
 
-// Die Schublade arbeitet auf einem Entwurf. Erst Speichern uebernimmt ihn.
 function openSettings() {
   state.draftStatus = { ...state.myStatus };
   state.addingStatus = false;
@@ -229,20 +258,17 @@ function closeSettings() {
   $('#settings').classList.remove('is-open');
   $('#settings-veil').classList.remove('is-open');
   $('#settings-toggle').classList.remove('is-on');
-  $('#settings-toggle').focus();
 }
 
 function buildSettings() {
   const box = $('#status-settings');
   box.innerHTML = '';
-
   const entries = Object.entries(state.draftStatus);
   if (!entries.length && !state.addingStatus) {
     box.appendChild(el('p', 'status-empty', 'Noch kein Programm gepflegt.'));
   }
   for (const [program] of entries) box.appendChild(statusRow(program));
   if (state.addingStatus) box.appendChild(statusRow(null));
-
   $('#status-add').hidden = state.addingStatus || entries.length >= Object.keys(PROGRAMS).length;
 }
 
@@ -273,7 +299,6 @@ function statusRow(existing) {
     fillLevels(progSel.value, '');
     if (progSel.value) levelSel.focus();
   });
-
   levelSel.addEventListener('change', () => {
     const program = progSel.value;
     if (!program) return;
@@ -323,43 +348,527 @@ $('#settings-toggle').addEventListener('click', () => {
   if ($('#settings').classList.contains('is-open')) closeSettings();
   else openSettings();
 });
-
 $('#settings-cancel').addEventListener('click', closeSettings);
 $('#settings-close').addEventListener('click', closeSettings);
 $('#settings-veil').addEventListener('click', closeSettings);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && $('#settings').classList.contains('is-open')) closeSettings();
+  if (e.key !== 'Escape') return;
+  if ($('#settings').classList.contains('is-open')) closeSettings();
+  if ($('#filter-pane').classList.contains('is-open')) closeFilters();
+  if ($('#detail-pane').classList.contains('is-open')) closeDetail();
 });
 
-/* ------------------------------------------------------------- Navigation */
+/* ------------------------------------------------------ Filter und Chips */
 
-document.querySelectorAll('.tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-on', t === tab));
-    for (const name of ['stays', 'new', 'stats']) {
-      $('#view-' + name).hidden = name !== tab.dataset.view;
-    }
-    if (tab.dataset.view === 'stats') loadStats();
-    if (tab.dataset.view === 'stays') { loadStays(); loadTree(); }
+const FILTER_IDS = ['#f-country', '#f-city', '#f-hotel', '#f-program', '#f-status', '#f-author', '#f-from', '#f-to'];
+
+function fillSelect(sel, values, placeholder) {
+  const previous = sel.value;
+  sel.innerHTML = '';
+  sel.appendChild(new Option(placeholder, ''));
+  for (const v of values) {
+    sel.appendChild(typeof v === 'string' ? new Option(v, v) : new Option(v.label, v.value));
+  }
+  sel.value = [...sel.options].some((o) => o.value === previous) ? previous : '';
+}
+
+async function loadFilters() {
+  try {
+    const data = await api('/filters');
+    state.places = data.places;
+    fillSelect($('#f-program'), data.programs, 'Alle Programme');
+    fillSelect($('#f-status'), data.statuses, 'Alle Statuslevel');
+    fillSelect($('#f-author'), data.people, 'Alle Personen');
+    refreshPlaceSelects();
+  } catch { /* Filter bleiben leer */ }
+}
+
+// Stadt hängt am Land, Hotel an der Stadt.
+function refreshPlaceSelects() {
+  const country = $('#f-country').value;
+  const city = $('#f-city').value;
+
+  const countries = [...new Set(state.places.map((p) => p.country))].sort();
+  fillSelect($('#f-country'), countries, 'Alle Länder');
+
+  const cities = [...new Set(state.places
+    .filter((p) => !country || p.country === country)
+    .map((p) => p.city))].sort();
+  fillSelect($('#f-city'), cities, 'Alle Städte');
+  $('#f-city').disabled = cities.length === 0;
+
+  const hotels = [];
+  const seen = new Set();
+  for (const p of state.places) {
+    if (country && p.country !== country) continue;
+    if (city && p.city !== city) continue;
+    if (seen.has(p.hotel_id)) continue;
+    seen.add(p.hotel_id);
+    hotels.push({ value: String(p.hotel_id), label: p.hotel_name });
+  }
+  hotels.sort((a, b) => a.label.localeCompare(b.label));
+  fillSelect($('#f-hotel'), hotels, 'Alle Hotels');
+  $('#f-hotel').disabled = hotels.length === 0;
+}
+
+function activeFilters() {
+  const out = [];
+  const push = (id, label, value, text) => { if (value) out.push({ id, label, value, text: text || value }); };
+  push('#f-country', 'Land', $('#f-country').value);
+  push('#f-city', 'Stadt', $('#f-city').value);
+  const hotelSel = $('#f-hotel');
+  push('#f-hotel', 'Hotel', hotelSel.value, hotelSel.selectedOptions[0]?.text);
+  push('#f-program', 'Programm', $('#f-program').value);
+  push('#f-status', 'Status', $('#f-status').value);
+  push('#f-author', 'Person', $('#f-author').value);
+  push('#f-from', 'ab', $('#f-from').value, 'ab ' + formatDate($('#f-from').value));
+  push('#f-to', 'bis', $('#f-to').value, 'bis ' + formatDate($('#f-to').value));
+  if ($('#f-upgraded').checked) out.push({ id: '#f-upgraded', label: '', value: '1', text: 'nur mit Upgrade' });
+  return out;
+}
+
+function renderChips() {
+  const box = $('#chips');
+  box.innerHTML = '';
+  for (const f of activeFilters()) {
+    const chip = el('span', 'chip-active');
+    chip.appendChild(el('span', null, f.text));
+    const x = el('button', null, '×');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Filter entfernen');
+    x.addEventListener('click', () => {
+      const node = $(f.id);
+      if (node.type === 'checkbox') node.checked = false;
+      else node.value = '';
+      refreshPlaceSelects();
+      loadStays();
+    });
+    chip.appendChild(x);
+    box.appendChild(chip);
+  }
+}
+
+for (const id of FILTER_IDS) {
+  $(id).addEventListener('change', () => {
+    if (id === '#f-country' || id === '#f-city') refreshPlaceSelects();
+    loadStays();
   });
-});
+}
+$('#f-upgraded').addEventListener('change', loadStays);
+$('#f-text').addEventListener('input', debounce(() => renderStayList(), 200));
 
-/* ------------------------------------------------ Auswahl: Land, Stadt, Hotel */
+function openFilters() {
+  $('#filter-pane').classList.add('is-open');
+  $('#filter-veil').classList.add('is-open');
+}
+function closeFilters() {
+  $('#filter-pane').classList.remove('is-open');
+  $('#filter-veil').classList.remove('is-open');
+}
+$('#filter-open').addEventListener('click', openFilters);
+$('#filter-close').addEventListener('click', closeFilters);
+$('#filter-veil').addEventListener('click', closeFilters);
+
+/* ------------------------------------------------------ Aufenthalte laden */
+
+async function loadStays() {
+  const params = new URLSearchParams();
+  const set = (key, value) => { if (value) params.set(key, value); };
+  set('program', $('#f-program').value);
+  set('author', $('#f-author').value);
+  set('status', $('#f-status').value);
+  set('hotel', $('#f-hotel').value);
+  set('land', $('#f-country').value);
+  set('city', $('#f-city').value);
+  if ($('#f-upgraded').checked) params.set('upgraded', '1');
+
+  try {
+    state.stays = await api('/stays?' + params);
+    renderChips();
+    renderStayList();
+  } catch (e) {
+    $('#stay-list').innerHTML = '';
+    $('#stay-list').appendChild(el('p', 'empty', e.message));
+  }
+}
+
+function inRange(stay) {
+  const from = $('#f-from').value;
+  const to = $('#f-to').value;
+  if (from && (!stay.checkin || stay.checkin < from)) return false;
+  if (to && (!stay.checkin || stay.checkin > to)) return false;
+  return true;
+}
+
+function renderStayList() {
+  const box = $('#stay-list');
+  const q = $('#f-text').value.trim();
+
+  const list = state.stays.filter((s) => {
+    if (!inRange(s)) return false;
+    if (!q) return true;
+    const haystack = [s.hotel_name, s.city, s.country, s.booked_room, s.received_room,
+      s.notes, s.author, (s.benefits || []).map((b) => b.name + ' ' + (b.value || '')).join(' ')]
+      .filter(Boolean).join(' ');
+    return fuzzyMatch(haystack, q);
+  });
+
+  $('#stay-count').textContent = list.length + (list.length === 1 ? ' Aufenthalt' : ' Aufenthalte');
+
+  box.innerHTML = '';
+  if (!list.length) {
+    box.appendChild(el('p', 'empty', state.stays.length
+      ? 'Kein Aufenthalt passt zu diesen Filtern.'
+      : 'Noch nichts eingetragen. Fang mit deinem letzten Aufenthalt an.'));
+    return;
+  }
+  for (const s of list) box.appendChild(renderStayCard(s));
+}
+
+/* ---------------------------------------------------------------- Karten */
+
+function renderStayCard(s) {
+  const card = el('article', 'stay' + (state.selected === s.id ? ' is-on' : ''));
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+
+  const top = el('div', 'stay-top');
+  const head = el('div');
+  head.appendChild(el('div', 'stay-hotel', s.hotel_name));
+  head.appendChild(el('div', 'stay-place', [s.city, s.country].filter(Boolean).join(', ')));
+  top.appendChild(head);
+  if (s.price != null) top.appendChild(el('div', 'stay-price', formatMoney(s.price, s.currency)));
+  card.appendChild(top);
+
+  card.appendChild(el('div', 'stay-when', stayDates(s)));
+
+  const badges = el('div', 'badge-row');
+  if (s.program) badges.appendChild(el('span', 'badge', s.program));
+  if (s.status_level) {
+    const badge = el('span', 'badge badge-status', s.status_level);
+    badge.style.background = statusColor(s.status_level);
+    badges.appendChild(badge);
+  }
+  if (badges.children.length) card.appendChild(badges);
+
+  if (s.booked_room || s.received_room) card.appendChild(renderFlow(s));
+
+  if (s.benefits?.length) {
+    const pills = el('div', 'stay-benefits');
+    for (const b of s.benefits) {
+      const pill = el('span', 'pill');
+      pill.appendChild(document.createTextNode(b.name));
+      if (b.value) {
+        pill.appendChild(document.createTextNode(' '));
+        pill.appendChild(el('span', 'v', b.value));
+      }
+      pills.appendChild(pill);
+    }
+    card.appendChild(pills);
+  }
+
+  const foot = el('div', 'stay-foot');
+  const author = el('span', 'stay-author');
+  author.appendChild(el('span', 'avatar', initials(s.author)));
+  author.appendChild(document.createTextNode(s.author));
+  foot.appendChild(author);
+  if (s.photos?.length) foot.appendChild(el('span', null, s.photos.length + (s.photos.length === 1 ? ' Foto' : ' Fotos')));
+  card.appendChild(foot);
+
+  const open = () => { state.selected = s.id; renderStayList(); showDetail(s); };
+  card.addEventListener('click', open);
+  card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+  return card;
+}
+
+// Gebucht → Erhalten, das Herzstück jeder Karte.
+function renderFlow(s) {
+  const flow = el('div', 'flow');
+
+  const booked = el('div', 'flow-row');
+  booked.appendChild(el('span', 'flow-label', 'GEBUCHT'));
+  booked.appendChild(el('span', 'flow-value', s.booked_room || 'nicht erfasst'));
+  flow.appendChild(booked);
+
+  const mid = el('div', 'flow-mid');
+  mid.appendChild(el('span', 'flow-arrow', '↓'));
+  const verdict = el('span', null, upgradeText(s.upgrade_steps));
+  verdict.className = s.upgrade_steps > 0 ? 'flow-up' : s.upgrade_steps < 0 ? 'flow-down' : 'flow-same';
+  mid.appendChild(verdict);
+  flow.appendChild(mid);
+
+  const got = el('div', 'flow-row');
+  got.appendChild(el('span', 'flow-label', 'ERHALTEN'));
+  got.appendChild(el('span', 'flow-value got', s.received_room || 'nicht erfasst'));
+  flow.appendChild(got);
+  return flow;
+}
+
+function upgradeText(steps) {
+  if (steps == null) return 'Kategorien nicht vergleichbar';
+  if (steps === 0) return 'kein Upgrade';
+  if (steps < 0) return Math.abs(steps) + (Math.abs(steps) === 1 ? ' Kategorie schlechter' : ' Kategorien schlechter');
+  return '+' + steps + (steps === 1 ? ' Kategorie' : ' Kategorien');
+}
+
+const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+
+function formatMoney(value, currency) {
+  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: currency || 'EUR', maximumFractionDigits: 0 }).format(value);
+}
+function formatDate(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+function stayDates(s) {
+  if (!s.checkin) return '';
+  const range = s.checkout ? formatDate(s.checkin) + ' – ' + formatDate(s.checkout) : formatDate(s.checkin);
+  const nights = s.nights ? ' · ' + s.nights + (s.nights === 1 ? ' Nacht' : ' Nächte') : '';
+  return range + nights;
+}
+
+/* ---------------------------------------------------------- Detailansicht */
+
+function closeDetail() {
+  $('#detail-pane').classList.remove('is-open');
+  state.selected = null;
+  renderStayList();
+  $('#detail-body').innerHTML = '';
+  $('#detail-body').appendChild(el('p', 'detail-placeholder', 'Wähle einen Aufenthalt, um alles dazu zu sehen.'));
+}
+$('#detail-close').addEventListener('click', closeDetail);
+
+function showDetail(s) {
+  const box = $('#detail-body');
+  box.innerHTML = '';
+  $('#detail-pane').classList.add('is-open');
+
+  box.appendChild(el('h3', 'detail-title', s.hotel_name));
+  box.appendChild(el('p', 'detail-sub', [s.city, s.country].filter(Boolean).join(', ')));
+
+  const badges = el('div', 'badge-row');
+  if (s.program) badges.appendChild(el('span', 'badge', s.program));
+  if (s.status_level) {
+    const badge = el('span', 'badge badge-status', s.status_level);
+    badge.style.background = statusColor(s.status_level);
+    badges.appendChild(badge);
+  }
+  box.appendChild(badges);
+
+  if (s.booked_room || s.received_room) box.appendChild(renderFlow(s));
+
+  const facts = el('div', 'detail-section');
+  facts.appendChild(el('h4', null, 'AUFENTHALT'));
+  const grid = el('div', 'detail-facts');
+  const fact = (label, value) => {
+    if (!value) return;
+    const cell = el('div');
+    cell.appendChild(el('div', 'fact-label', label));
+    cell.appendChild(el('div', 'fact-value', value));
+    grid.appendChild(cell);
+  };
+  fact('Zeitraum', stayDates(s));
+  fact('Preis', s.price != null ? formatMoney(s.price, s.currency) : null);
+  fact('Eingetragen von', s.author);
+  fact('Nächte', s.nights ? String(s.nights) : null);
+  facts.appendChild(grid);
+  box.appendChild(facts);
+
+  if (s.benefits?.length) {
+    const section = el('div', 'detail-section');
+    section.appendChild(el('h4', null, 'BENEFITS'));
+    const pills = el('div', 'stay-benefits');
+    for (const b of s.benefits) {
+      const pill = el('span', 'pill');
+      pill.appendChild(document.createTextNode(b.name));
+      if (b.value) {
+        pill.appendChild(document.createTextNode(' '));
+        pill.appendChild(el('span', 'v', b.value));
+      }
+      pills.appendChild(pill);
+    }
+    section.appendChild(pills);
+    box.appendChild(section);
+  }
+
+  if (s.notes) {
+    const section = el('div', 'detail-section');
+    section.appendChild(el('h4', null, 'ERFAHRUNG'));
+    section.appendChild(el('p', 'detail-notes', s.notes));
+    box.appendChild(section);
+  }
+
+  if (s.photos?.length) {
+    const section = el('div', 'detail-section');
+    section.appendChild(el('h4', null, 'FOTOS'));
+    const gallery = el('div', 'detail-gallery');
+    for (const p of s.photos) {
+      const fig = document.createElement('figure');
+      const img = document.createElement('img');
+      img.src = '/api/photos/' + encodeURIComponent(p.key);
+      img.alt = p.caption || '';
+      img.loading = 'lazy';
+      fig.appendChild(img);
+      if (p.caption) fig.appendChild(el('figcaption', null, p.caption));
+      gallery.appendChild(fig);
+    }
+    section.appendChild(gallery);
+    box.appendChild(section);
+  }
+
+  const actions = el('div', 'detail-actions');
+  const hotelBtn = el('button', 'btn btn-quiet', 'Hotel ansehen');
+  hotelBtn.addEventListener('click', () => showHotel(s.hotel_id));
+  actions.appendChild(hotelBtn);
+
+  const share = el('button', 'btn btn-quiet', 'Teilen');
+  share.addEventListener('click', () => shareStay(s));
+  actions.appendChild(share);
+
+  if (s.author === state.me) {
+    const del = el('button', 'btn btn-quiet', 'Löschen');
+    del.addEventListener('click', async () => {
+      if (!confirm('Diesen Aufenthalt löschen?')) return;
+      await api('/stays/' + s.id, { method: 'DELETE' });
+      closeDetail();
+      loadStays();
+      loadFilters();
+    });
+    actions.appendChild(del);
+  }
+  box.appendChild(actions);
+}
+
+function shareStay(s) {
+  const lines = [
+    s.hotel_name + (s.city ? ', ' + s.city : ''),
+    [s.program, s.status_level].filter(Boolean).join(' · '),
+    s.booked_room && s.received_room ? 'Gebucht: ' + s.booked_room + ' → Bekommen: ' + s.received_room : null,
+    upgradeText(s.upgrade_steps),
+    s.benefits?.length ? 'Dazu: ' + s.benefits.map((b) => b.name + (b.value ? ' (' + b.value + ')' : '')).join(', ') : null,
+    s.price != null ? 'Preis: ' + formatMoney(s.price, s.currency) : null,
+    s.notes || null,
+  ].filter(Boolean);
+  const text = lines.join('\n');
+  if (navigator.share) navigator.share({ text }).catch(() => {});
+  else navigator.clipboard.writeText(text).then(() => alert('In die Zwischenablage kopiert.'));
+}
+
+/* ------------------------------------------------------- Hotel-Detailseite */
+
+async function showHotel(hotelId) {
+  const box = $('#detail-body');
+  box.innerHTML = '';
+  $('#detail-pane').classList.add('is-open');
+  box.appendChild(el('p', 'detail-placeholder', 'Wird geladen …'));
+
+  try {
+    const data = await api('/hotels/' + hotelId + '/community');
+    box.innerHTML = '';
+
+    const back = el('button', 'link-btn', '← zurück zum Aufenthalt');
+    back.addEventListener('click', () => {
+      const stay = state.stays.find((s) => s.id === state.selected);
+      if (stay) showDetail(stay); else closeDetail();
+    });
+    box.appendChild(back);
+
+    const hero = el('div', 'hotel-hero');
+    hero.appendChild(el('h3', 'detail-title', data.hotel.name));
+    hero.appendChild(el('p', 'detail-sub', [data.hotel.city, data.hotel.country].filter(Boolean).join(', ')));
+    box.appendChild(hero);
+
+    if (data.hotel.program) {
+      const badges = el('div', 'badge-row');
+      badges.appendChild(el('span', 'badge', data.hotel.program));
+      box.appendChild(badges);
+    }
+
+    const stats = el('div', 'detail-section');
+    stats.appendChild(el('h4', null, 'COMMUNITY-ERFAHRUNGEN'));
+    const grid = el('div', 'hotel-stat-grid');
+    const stat = (num, label) => {
+      const cell = el('div', 'hotel-stat');
+      cell.appendChild(el('div', 'num', num));
+      cell.appendChild(el('div', 'lbl', label));
+      grid.appendChild(cell);
+    };
+    stat(String(data.stays), data.stays === 1 ? 'Aufenthalt' : 'Aufenthalte');
+    stat(data.upgrade_quote != null ? data.upgrade_quote + ' %' : '–', 'Upgrade erhalten');
+    stat(data.mehr_als_eine != null ? data.mehr_als_eine + ' %' : '–', 'mehr als eine Kategorie');
+    stat(data.avg_steps != null ? '+' + data.avg_steps.toString().replace('.', ',') : '–', 'Ø Kategorien');
+    stats.appendChild(grid);
+    box.appendChild(stats);
+
+    if (data.pairs.length) {
+      const section = el('div', 'detail-section');
+      section.appendChild(el('h4', null, 'UPGRADE-ERFAHRUNGEN'));
+      for (const pair of data.pairs) {
+        const row = el('div', 'pair');
+        const rooms = el('div', 'pair-rooms');
+        rooms.appendChild(el('div', null, pair.booked));
+        rooms.appendChild(el('div', 'to', '→ ' + pair.received));
+        row.appendChild(rooms);
+        row.appendChild(el('span', 'pair-count', pair.count + '× gemeldet'));
+        section.appendChild(row);
+      }
+      box.appendChild(section);
+    }
+
+    if (data.benefits.length) {
+      const section = el('div', 'detail-section');
+      section.appendChild(el('h4', null, 'WAS ES DAZU GAB'));
+      for (const b of data.benefits) {
+        const row = el('div', 'bar-row');
+        const top = el('div', 'bar-top');
+        top.appendChild(el('span', null, b.name + (b.values.length ? ' · ' + [...new Set(b.values)].slice(0, 3).join(', ') : '')));
+        top.appendChild(el('span', 'muted', b.quote + ' %'));
+        row.appendChild(top);
+        const track = el('div', 'bar-track');
+        const fill = el('div', 'bar-fill');
+        fill.style.width = b.quote + '%';
+        track.appendChild(fill);
+        row.appendChild(track);
+        section.appendChild(row);
+      }
+      box.appendChild(section);
+    }
+
+    const actions = el('div', 'detail-actions');
+    const filterBtn = el('button', 'btn btn-quiet', 'Alle Aufenthalte hier zeigen');
+    filterBtn.addEventListener('click', () => {
+      $('#f-country').value = data.hotel.country || '';
+      refreshPlaceSelects();
+      $('#f-city').value = data.hotel.city || '';
+      refreshPlaceSelects();
+      $('#f-hotel').value = String(hotelId);
+      closeDetail();
+      loadStays();
+    });
+    actions.appendChild(filterBtn);
+    if (data.hotel.website) {
+      const site = el('a', 'btn btn-quiet', 'Hotelseite');
+      site.href = data.hotel.website;
+      site.target = '_blank';
+      site.rel = 'noopener';
+      actions.appendChild(site);
+    }
+    box.appendChild(actions);
+  } catch (e) {
+    box.innerHTML = '';
+    box.appendChild(el('p', 'detail-placeholder', e.message));
+  }
+}
+
+/* ---------------------------------------------- Eintragen: Land, Stadt, Hotel */
 
 function renderCountryOptions() {
   const q = $('#p-country').value.trim().toLowerCase();
   const box = $('#country-results');
   box.innerHTML = '';
   if (!q) return;
-
-  const hits = COUNTRIES
-    .filter(([code, name]) => fuzzyMatch(name, q) || code.toLowerCase() === q)
-    .slice(0, 8);
-
-  if (!hits.length) {
-    box.appendChild(el('p', 'options-empty', 'Kein Land gefunden.'));
-    return;
-  }
+  const hits = COUNTRIES.filter(([code, name]) => fuzzyMatch(name, q) || code.toLowerCase() === q).slice(0, 8);
+  if (!hits.length) { box.appendChild(el('p', 'options-empty', 'Kein Land gefunden.')); return; }
   for (const [code, name] of hits) {
     const b = el('button', 'option');
     b.type = 'button';
@@ -384,8 +893,6 @@ $('#p-country').addEventListener('input', () => {
   if (exact) { chooseCountry(exact[0], exact[1]); return; }
   renderCountryOptions();
 });
-
-// Enter nimmt den obersten Vorschlag.
 $('#p-country').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   e.preventDefault();
@@ -400,7 +907,7 @@ $('#p-city').addEventListener('input', debounce(async () => {
   try {
     const cities = await api('/geo/cities?country=' + encodeURIComponent(state.country?.code || '') + '&q=' + encodeURIComponent(q));
     box.innerHTML = '';
-    if (!cities.length) { box.innerHTML = '<p class="options-empty">Kein Ort gefunden. Schreibweise prüfen.</p>'; return; }
+    if (!cities.length) { box.innerHTML = '<p class="options-empty">Kein Ort gefunden.</p>'; return; }
     for (const c of cities) {
       const b = el('button', 'option');
       b.type = 'button';
@@ -420,6 +927,7 @@ async function chooseCity(city) {
   $('#p-city').value = city.name;
   $('#city-results').innerHTML = '';
   document.querySelector('[data-step="hotel"]').hidden = false;
+  $('#p-hotel').focus();
 
   const box = $('#hotel-results');
   const count = $('#hotel-count');
@@ -428,7 +936,7 @@ async function chooseCity(city) {
   try {
     state.hotelCandidates = await api('/geo/hotels?lat=' + city.lat + '&lon=' + city.lon);
     count.textContent = state.hotelCandidates.length + ' im Umkreis';
-    renderHotelOptions();
+    renderHotelOptions([]);
   } catch (e) {
     count.textContent = 'Umkreissuche gescheitert';
     box.innerHTML = '';
@@ -443,8 +951,6 @@ function renderHotelOptions(extra) {
 
   const merged = [];
   const seen = new Set();
-
-  // Was die Namenssuche liefert, ist bereits auf die Eingabe gemuenzt.
   for (const h of extra) {
     const marker = normalize(h.name);
     if (seen.has(marker)) continue;
@@ -461,9 +967,9 @@ function renderHotelOptions(extra) {
 
   box.innerHTML = '';
   if (!merged.length) {
-    box.appendChild(el('p', 'options-empty',
-      q ? 'Nichts gefunden. Weiter tippen oder von Hand eintragen.' : 'Keine Hotels im Umkreis gefunden.'));
-    if (q) box.appendChild(el('p', 'options-empty', 'Es wird zusätzlich direkt nach dem Namen gesucht, das dauert einen Moment.'));
+    box.appendChild(el('p', 'options-empty', q
+      ? 'Nichts gefunden. Weiter tippen oder von Hand eintragen.'
+      : 'Keine Hotels im Umkreis gefunden.'));
     return;
   }
   for (const h of merged.slice(0, 40)) {
@@ -486,13 +992,10 @@ const searchHotelByName = debounce(async () => {
     if ($('#p-hotel').value.trim() !== q) return;
     state.nameHits = found;
     renderHotelOptions(found);
-  } catch { /* die Umkreisliste bleibt ja stehen */ }
+  } catch { /* Umkreisliste bleibt */ }
 }, 300);
 
-$('#p-hotel').addEventListener('input', () => {
-  renderHotelOptions([]);
-  searchHotelByName();
-});
+$('#p-hotel').addEventListener('input', () => { renderHotelOptions([]); searchHotelByName(); });
 
 $('#hotel-manual').addEventListener('click', () => {
   const name = prompt('Wie heißt das Hotel?');
@@ -527,7 +1030,25 @@ async function chooseHotel(candidate) {
   loadGallery();
 }
 
-// Programm aus dem Hotel uebernehmen, solange nichts von Hand gewaehlt wurde.
+function resetPicker() {
+  clearInterval(state.pollTimer);
+  state.hotel = null;
+  state.rooms = [];
+  state.pendingPhotos = [];
+  state.benefitValues = {};
+  $('#photo-previews').innerHTML = '';
+  $('#stay-form').reset();
+  $('#stay-form').hidden = true;
+  $('#picker').hidden = false;
+  $('#p-hotel').value = '';
+  $('#benefit-values').innerHTML = '';
+  $('#s-checkin').valueAsDate = new Date();
+  renderHotelOptions([]);
+}
+$('#chosen-reset').addEventListener('click', resetPicker);
+
+/* ------------------------------------------------------------- Hotelkarte */
+
 function applyHotelProgram() {
   const sel = $('#s-program');
   const program = state.hotel?.program;
@@ -550,21 +1071,16 @@ function renderChosenHotel() {
 
   const links = $('#chosen-links');
   links.innerHTML = '';
-
   if (hotel.address) links.appendChild(el('span', null, hotel.address));
-
   if (hotel.website) {
     const a = el('a', null, 'Hotelseite');
-    a.href = hotel.website;
-    a.target = '_blank';
-    a.rel = 'noopener';
+    a.href = hotel.website; a.target = '_blank'; a.rel = 'noopener';
     links.appendChild(a);
   }
   if (hotel.lat && hotel.lon) {
     const map = el('a', null, 'auf der Karte');
     map.href = 'https://www.openstreetmap.org/?mlat=' + hotel.lat + '&mlon=' + hotel.lon + '#map=17/' + hotel.lat + '/' + hotel.lon;
-    map.target = '_blank';
-    map.rel = 'noopener';
+    map.target = '_blank'; map.rel = 'noopener';
     links.appendChild(map);
   }
   if (hotel.lounge === 1) links.appendChild(el('span', null, 'Lounge vorhanden'));
@@ -590,9 +1106,7 @@ async function loadGallery() {
       if (data.rating_count) rating.appendChild(el('span', 'n', ' · ' + data.rating_count + ' Bewertungen bei Google'));
       if (data.maps_uri) {
         const a = el('a', null, ' ansehen');
-        a.href = data.maps_uri;
-        a.target = '_blank';
-        a.rel = 'noopener';
+        a.href = data.maps_uri; a.target = '_blank'; a.rel = 'noopener';
         rating.appendChild(a);
       }
       rating.hidden = false;
@@ -606,14 +1120,11 @@ async function loadGallery() {
       image.loading = 'lazy';
       image.addEventListener('error', () => fig.remove());
       fig.appendChild(image);
-
       const credit = el('figcaption');
       const parts = [img.author, img.license].filter(Boolean).join(' · ');
       if (img.page) {
         const a = el('a', null, parts || 'Quelle');
-        a.href = img.page;
-        a.target = '_blank';
-        a.rel = 'noopener';
+        a.href = img.page; a.target = '_blank'; a.rel = 'noopener';
         credit.appendChild(a);
       } else {
         credit.textContent = parts;
@@ -623,34 +1134,17 @@ async function loadGallery() {
     }
 
     if (!(data.photos || []).length) {
-      const note = el('p', 'gallery-note', data.google_aktiv
+      box.insertAdjacentElement('afterend', el('p', 'gallery-note', data.google_aktiv
         ? 'Zu diesem Haus wurden keine Bilder gefunden.'
-        : 'Ohne Google-Schlüssel gibt es meist keine Hotelbilder.');
-      box.insertAdjacentElement('afterend', note);
+        : 'Ohne Google-Schlüssel gibt es meist keine Hotelbilder.'));
     }
   } catch { /* ohne Bilder geht es auch */ }
-}
-
-$('#chosen-reset').addEventListener('click', resetPicker);
-
-function resetPicker() {
-  clearInterval(state.pollTimer);
-  state.hotel = null;
-  state.rooms = [];
-  state.pendingPhotos = [];
-  $('#photo-previews').innerHTML = '';
-  $('#stay-form').reset();
-  $('#stay-form').hidden = true;
-  $('#picker').hidden = false;
-  $('#p-hotel').value = '';
-  renderHotelOptions();
 }
 
 /* --------------------------------------------------------- Zimmerkategorien */
 
 function fallbackRooms() {
-  const program = $('#s-program').value;
-  const names = FALLBACK_ROOMS[program] || FALLBACK_ROOMS.default;
+  const names = FALLBACK_ROOMS[$('#s-program').value] || FALLBACK_ROOMS.default;
   return names.map((name, i) => ({ name, rank: i + 1, confirmed: 0, source: 'fallback' }));
 }
 
@@ -664,8 +1158,6 @@ function renderRooms() {
   list.innerHTML = '';
   adder.hidden = busy;
 
-  // Solange recherchiert wird, zeigen wir bewusst keine Kategorien –
-  // eine allgemeine Markenliste sieht sonst aus wie ein Ergebnis.
   if (busy) {
     status.textContent = 'wird recherchiert …';
     const wait = el('div', 'rooms-wait');
@@ -684,7 +1176,6 @@ function renderRooms() {
       renderRooms();
     });
     list.appendChild(skip);
-
     fillRoomSelects([], 'wird recherchiert …');
     return;
   }
@@ -696,31 +1187,22 @@ function renderRooms() {
     status.textContent = 'allgemeine Liste der Marke – bitte anpassen';
   } else {
     const open = state.rooms.filter((r) => !r.confirmed).length;
-    status.textContent = open ? open + ' Vorschläge – bestätige, was stimmt' : 'bestätigt';
-  }
-
-  if (state.hotel?.enrich_error && isFallback) {
-    list.appendChild(el('p', 'rooms-wait-note', 'Die Recherche hat nichts Gesichertes gefunden.'));
+    status.textContent = open ? open + ' Vorschläge' : 'bestätigt';
   }
 
   for (const room of rooms) {
     const row = el('div', 'room-row' + (room.confirmed ? '' : ' is-suggested'));
-
     const check = document.createElement('input');
     check.type = 'checkbox';
     check.checked = !!room.confirmed;
     check.setAttribute('aria-label', 'Kategorie ' + room.name + ' bestätigen');
     check.addEventListener('change', () => confirmRoom(room, check.checked));
-
     row.appendChild(check);
     row.appendChild(el('span', 'rank', room.rank ?? ''));
     row.appendChild(el('span', 'name', room.name));
-
     if (room.source_url) {
       const a = el('a', null, 'Quelle');
-      a.href = room.source_url;
-      a.target = '_blank';
-      a.rel = 'noopener';
+      a.href = room.source_url; a.target = '_blank'; a.rel = 'noopener';
       row.appendChild(a);
     }
     list.appendChild(row);
@@ -738,7 +1220,26 @@ function fillRoomSelects(rooms, placeholder) {
     sel.disabled = Boolean(placeholder);
     if (previous) sel.value = previous;
   }
+  updateUpgradeHint();
 }
+
+// Zeigt sofort, was der Status gebracht hat.
+function updateUpgradeHint() {
+  const hint = $('#upgrade-hint');
+  const rooms = state.rooms.length ? state.rooms : fallbackRooms();
+  const rank = (name) => rooms.find((r) => r.name === name)?.rank;
+  const booked = rank($('#s-booked').value);
+  const got = rank($('#s-received').value);
+
+  hint.className = 'upgrade-hint';
+  if (booked == null || got == null) { hint.textContent = '↓'; return; }
+  const steps = got - booked;
+  hint.textContent = '↓  ' + upgradeText(steps);
+  if (steps > 0) hint.classList.add('up');
+  if (steps < 0) hint.classList.add('down');
+}
+$('#s-booked').addEventListener('change', updateUpgradeHint);
+$('#s-received').addEventListener('change', updateUpgradeHint);
 
 async function confirmRoom(room, confirmed) {
   if (!state.hotel) return;
@@ -765,9 +1266,7 @@ $('#room-add').addEventListener('click', async () => {
 
 function watchEnrichment() {
   clearInterval(state.pollTimer);
-  if (!state.hotel) return;
-  if (['ready', 'failed'].includes(state.hotel.enrich_status)) return;
-
+  if (!state.hotel || ['ready', 'failed'].includes(state.hotel.enrich_status)) return;
   let tries = 0;
   state.pollTimer = setInterval(async () => {
     tries += 1;
@@ -779,15 +1278,17 @@ function watchEnrichment() {
       renderChosenHotel();
       applyHotelProgram();
       renderRooms();
-      if (['ready', 'failed'].includes(res.hotel.enrich_status)) clearInterval(state.pollTimer);
-    } catch { /* still weiter versuchen */ }
+      if (['ready', 'failed'].includes(res.hotel.enrich_status)) {
+        clearInterval(state.pollTimer);
+        loadGallery();
+      }
+    } catch { /* weiter versuchen */ }
   }, 4000);
 }
 
-/* ------------------------------------------------------------- Formular */
+/* ---------------------------------------------------------------- Formular */
 
 function buildForm() {
-
   const prog = $('#s-program');
   prog.innerHTML = '';
   prog.appendChild(new Option('– Programm wählen –', ''));
@@ -800,28 +1301,39 @@ function buildForm() {
 
   const chips = $('#benefit-list');
   chips.innerHTML = '';
-  for (const b of BENEFITS) {
+  for (const [name] of BENEFITS) {
     const label = el('label', 'chip');
     const input = document.createElement('input');
     input.type = 'checkbox';
-    input.value = b;
+    input.value = name;
+    input.addEventListener('change', renderBenefitValues);
     label.appendChild(input);
-    label.appendChild(document.createTextNode(b));
+    label.appendChild(document.createTextNode(name));
     chips.appendChild(label);
   }
 
-  const fp = $('#f-program');
-  for (const name of Object.keys(PROGRAMS)) fp.appendChild(new Option(name, name));
-
-  const fs = $('#f-status');
-  const levels = new Set();
-  for (const info of Object.values(PROGRAMS)) for (const level of info.status) levels.add(level);
-  for (const level of [...levels].sort()) fs.appendChild(new Option(level, level));
-
-  for (const id of ['#f-program', '#f-author', '#f-status']) $(id).addEventListener('change', loadStays);
-  $('#f-upgraded').addEventListener('change', loadStays);
-
   $('#s-checkin').valueAsDate = new Date();
+}
+
+// Für ausgewählte Benefits, die einen Wert vertragen, ein Feld anbieten.
+function renderBenefitValues() {
+  const box = $('#benefit-values');
+  box.innerHTML = '';
+  const chosen = [...document.querySelectorAll('#benefit-list input:checked')].map((i) => i.value);
+
+  for (const name of chosen) {
+    const hint = benefitHint(name);
+    if (!hint) continue;
+    const row = el('div', 'benefit-value');
+    row.appendChild(el('span', null, name));
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = hint;
+    input.value = state.benefitValues[name] || '';
+    input.addEventListener('input', () => { state.benefitValues[name] = input.value; });
+    row.appendChild(input);
+    box.appendChild(row);
+  }
 }
 
 function syncStatusOptions() {
@@ -832,14 +1344,11 @@ function syncStatusOptions() {
   sel.innerHTML = '';
   sel.appendChild(new Option('– kein Status –', ''));
   for (const s of levels) sel.appendChild(new Option(s, s));
-
-  // Gepflegter Status gewinnt, solange nichts anderes gewaehlt wurde.
   const mine = state.myStatus[program];
   if (previous && levels.includes(previous)) sel.value = previous;
   else if (mine && levels.includes(mine)) sel.value = mine;
 }
 
-/* Bilder verkleinern, bevor sie hochgehen. */
 async function shrink(file, max = 1600) {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
@@ -855,7 +1364,6 @@ $('#s-photos').addEventListener('change', async (e) => {
     const blob = await shrink(file);
     const entry = { blob, caption: '' };
     state.pendingPhotos.push(entry);
-
     const wrap = el('div', 'photo-preview');
     const img = document.createElement('img');
     img.src = URL.createObjectURL(blob);
@@ -873,9 +1381,12 @@ $('#stay-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const err = $('#form-error');
   err.hidden = true;
-
   try {
-    const benefits = [...document.querySelectorAll('#benefit-list input:checked')].map((i) => i.value);
+    const benefits = [...document.querySelectorAll('#benefit-list input:checked')].map((i) => ({
+      name: i.value,
+      value: (state.benefitValues[i.value] || '').trim() || null,
+    }));
+
     const { id } = await api('/stays', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -903,325 +1414,109 @@ $('#stay-form').addEventListener('submit', async (e) => {
     }
 
     resetPicker();
-    document.querySelector('.tab[data-view="stays"]').click();
+    showView('stays');
+    loadFilters();
   } catch (e2) {
     err.textContent = e2.message;
     err.hidden = false;
   }
 });
 
-/* --------------------------------------------------------- Baumübersicht */
-
-async function loadTree() {
-  const box = $('#tree');
-  try {
-    const tree = await api('/tree');
-    box.innerHTML = '';
-    if (!tree.length) {
-      box.appendChild(el('p', 'tree-empty', 'Sobald Aufenthalte da sind, wächst hier der Baum.'));
-      return;
-    }
-
-    for (const country of tree) {
-      const details = document.createElement('details');
-      details.open = state.pick.land === country.country;
-
-      const summary = document.createElement('summary');
-      summary.appendChild(el('span', null, country.country));
-      summary.appendChild(el('span', 'n', String(country.stays)));
-      details.appendChild(summary);
-
-      for (const city of country.cities) {
-        const cityBox = document.createElement('details');
-        cityBox.className = 'city';
-        cityBox.open = state.pick.city === city.city;
-
-        const citySummary = document.createElement('summary');
-        citySummary.appendChild(el('span', null, city.city));
-        citySummary.appendChild(el('span', 'n', String(city.stays)));
-        cityBox.appendChild(citySummary);
-
-        for (const hotel of city.hotels) {
-          const button = el('button', 'tree-hotel' + (state.pick.hotel === hotel.id ? ' is-on' : ''));
-          button.type = 'button';
-          button.appendChild(el('span', null, hotel.name));
-          button.appendChild(el('span', 'n', String(hotel.stays)));
-          button.addEventListener('click', () => {
-            state.pick = { land: country.country, city: city.city, hotel: hotel.id };
-            loadTree();
-            loadStays();
-          });
-          cityBox.appendChild(button);
-        }
-        details.appendChild(cityBox);
-      }
-      box.appendChild(details);
-    }
-  } catch (e) {
-    box.innerHTML = '';
-    box.appendChild(el('p', 'tree-empty', e.message));
-  }
-}
-
-$('#tree-all').addEventListener('click', () => {
-  state.pick = {};
-  loadTree();
-  loadStays();
-});
-
-$('#f-text').addEventListener('input', debounce(() => renderStayList(), 200));
-
-/* ------------------------------------------------------ Aufenthalte zeigen */
-
-async function loadStays() {
-  const params = new URLSearchParams();
-  if ($('#f-program').value) params.set('program', $('#f-program').value);
-  if ($('#f-author').value) params.set('author', $('#f-author').value);
-  if ($('#f-status').value) params.set('status', $('#f-status').value);
-  if ($('#f-upgraded').checked) params.set('upgraded', '1');
-  if (state.pick.hotel) params.set('hotel', String(state.pick.hotel));
-
-  const box = $('#stay-list');
-  try {
-    const [stays, people] = await Promise.all([api('/stays?' + params), api('/people')]);
-
-    const fa = $('#f-author');
-    const chosen = fa.value;
-    fa.innerHTML = '<option value="">Alle Personen</option>';
-    for (const p of people) fa.appendChild(new Option(p, p));
-    fa.value = chosen;
-
-    state.stays = stays;
-    renderStayList();
-  } catch (e) {
-    box.innerHTML = '';
-    box.appendChild(el('p', 'empty', e.message));
-  }
-}
-
-// Freitextsuche laeuft auf den geladenen Aufenthalten, ohne neuen Abruf.
-function renderStayList() {
-  const box = $('#stay-list');
-  const q = $('#f-text').value.trim();
-  const list = q
-    ? state.stays.filter((s) => fuzzyMatch(
-        [s.hotel_name, s.city, s.booked_room, s.received_room, s.notes, (s.benefits || []).join(' ')]
-          .filter(Boolean).join(' '), q))
-    : state.stays;
-
-  const count = $('#stay-count');
-  if (state.pick.hotel || q) {
-    count.textContent = list.length + (list.length === 1 ? ' Aufenthalt' : ' Aufenthalte');
-    count.hidden = false;
-  } else {
-    count.hidden = true;
-  }
-
-  box.innerHTML = '';
-  if (!list.length) {
-    box.appendChild(el('p', 'empty', q
-      ? 'Nichts gefunden.'
-      : 'Noch nichts eingetragen. Fang mit deinem letzten Aufenthalt an.'));
-    return;
-  }
-  for (const s of list) box.appendChild(renderStay(s));
-}
-
-function renderStay(s) {
-  const card = el('article', 'stay');
-  card.style.setProperty('--program', PROGRAMS[s.program]?.color || 'var(--line)');
-
-  const top = el('div', 'stay-top');
-  const head = el('div');
-  head.appendChild(el('div', 'stay-hotel', s.hotel_name));
-  head.appendChild(el('div', 'stay-place', [s.city, s.country].filter(Boolean).join(', ')));
-  top.appendChild(head);
-  if (s.price != null) top.appendChild(el('div', null, formatMoney(s.price, s.currency)));
-  card.appendChild(top);
-
-  const meta = el('div', 'stay-meta');
-  if (s.checkin) meta.appendChild(el('span', null, formatStayDates(s)));
-  if (s.program) meta.appendChild(el('span', null, s.program + (s.status_level ? ' · ' + s.status_level : '')));
-  card.appendChild(meta);
-
-  if (s.booked_room || s.received_room) card.appendChild(renderLadder(s));
-
-  if (s.benefits?.length) {
-    const tags = el('div', 'stay-benefits');
-    for (const b of s.benefits) tags.appendChild(el('span', 'tag', b));
-    card.appendChild(tags);
-  }
-
-  if (s.notes) card.appendChild(el('p', 'stay-notes', s.notes));
-
-  if (s.photos?.length) {
-    const strip = el('div', 'stay-photos');
-    for (const p of s.photos) {
-      const fig = document.createElement('figure');
-      const img = document.createElement('img');
-      img.src = '/api/photos/' + encodeURIComponent(p.key);
-      img.alt = p.caption || '';
-      img.loading = 'lazy';
-      fig.appendChild(img);
-      if (p.caption) fig.appendChild(el('figcaption', null, p.caption));
-      strip.appendChild(fig);
-    }
-    card.appendChild(strip);
-  }
-
-  const foot = el('div', 'stay-foot');
-  foot.appendChild(el('span', 'stay-author', s.author));
-  const actions = el('div', 'stay-actions');
-
-  const share = el('button', 'btn btn-quiet', 'teilen');
-  share.addEventListener('click', () => shareStay(s));
-  actions.appendChild(share);
-
-  if (s.author === state.me) {
-    const del = el('button', 'btn btn-quiet', 'löschen');
-    del.addEventListener('click', async () => {
-      if (!confirm('Diesen Aufenthalt löschen?')) return;
-      await api('/stays/' + s.id, { method: 'DELETE' });
-      loadStays();
-      loadTree();
-    });
-    actions.appendChild(del);
-  }
-  foot.appendChild(actions);
-  card.appendChild(foot);
-  return card;
-}
-
-/* Die Leiter zeigt, wie weit der Status im Zimmerangebot nach oben getragen hat. */
-function renderLadder(s) {
-  const wrap = el('div', 'ladder');
-  const rungs = el('div', 'ladder-rungs');
-
-  const booked = s.booked_rank;
-  const got = s.received_rank;
-  const top = Math.max(booked || 0, got || 0, 5);
-
-  for (let i = 1; i <= top; i++) {
-    const rung = el('div', 'rung');
-    rung.style.height = 30 * (0.45 + (0.55 * i) / top) + 'px';
-    if (booked != null && i === booked) rung.classList.add('is-booked');
-    if (got != null && i === got) rung.classList.add(s.upgrade_steps < 0 ? 'is-down' : 'is-got');
-    if (booked != null && got != null && i > Math.min(booked, got) && i < Math.max(booked, got)) {
-      rung.classList.add('is-range');
-    }
-    rungs.appendChild(rung);
-  }
-  wrap.appendChild(rungs);
-
-  const legend = el('div', 'ladder-legend');
-  legend.appendChild(el('span', null, s.booked_room || 'gebucht unbekannt'));
-  const arrow = el('span', 'got', s.received_room || 'erhalten unbekannt');
-  legend.appendChild(arrow);
-  wrap.appendChild(legend);
-
-  const verdict = el('div', 'ladder-verdict', upgradeText(s.upgrade_steps));
-  if (s.upgrade_steps == null || s.upgrade_steps === 0) verdict.classList.add('none');
-  if (s.upgrade_steps < 0) verdict.classList.add('down');
-  wrap.appendChild(verdict);
-  return wrap;
-}
-
-function upgradeText(steps) {
-  if (steps == null) return 'Kategorien nicht vergleichbar';
-  if (steps === 0) return 'kein Upgrade';
-  if (steps < 0) return Math.abs(steps) + (Math.abs(steps) === 1 ? ' Kategorie schlechter' : ' Kategorien schlechter');
-  return steps + (steps === 1 ? ' Kategorie höher' : ' Kategorien höher');
-}
-
-function formatMoney(value, currency) {
-  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: currency || 'EUR', maximumFractionDigits: 0 }).format(value);
-}
-
-function formatStayDates(s) {
-  const f = (d) => new Date(d).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
-  if (!s.checkout) return f(s.checkin);
-  return f(s.checkin) + ' – ' + f(s.checkout) + (s.nights ? ' · ' + s.nights + (s.nights === 1 ? ' Nacht' : ' Nächte') : '');
-}
-
-/* Fertiger Textblock für die Gruppe. */
-function shareStay(s) {
-  const lines = [
-    s.hotel_name + (s.city ? ', ' + s.city : ''),
-    [s.program, s.status_level].filter(Boolean).join(' · '),
-    s.booked_room && s.received_room ? 'Gebucht: ' + s.booked_room + ' → Bekommen: ' + s.received_room : null,
-    upgradeText(s.upgrade_steps),
-    s.benefits?.length ? 'Dazu: ' + s.benefits.join(', ') : null,
-    s.price != null ? 'Preis: ' + formatMoney(s.price, s.currency) : null,
-    s.notes || null,
-  ].filter(Boolean);
-  const text = lines.join('\n');
-
-  if (navigator.share) navigator.share({ text }).catch(() => {});
-  else navigator.clipboard.writeText(text).then(() => alert('In die Zwischenablage kopiert.'));
-}
-
 /* ------------------------------------------------------------ Auswertung */
 
 async function loadStats() {
   const box = $('#stats-body');
+  box.innerHTML = '<p class="empty">Wird geladen …</p>';
   try {
-    const data = await api('/stats');
+    const scope = $('#stats-scope').value === 'me' ? '?author=' + encodeURIComponent(state.me) : '';
+    const data = await api('/stats' + scope);
     box.innerHTML = '';
 
     const totals = el('div', 'totals');
-    const t = data.totals || {};
+    const t = data.totals;
     for (const [num, label] of [
-      [t.stays || 0, 'Aufenthalte'],
-      [t.hotels || 0, 'Hotels'],
-      [t.nights || 0, 'Nächte'],
-      [t.upgraded || 0, 'davon mit Upgrade'],
+      [String(t.stays), t.stays === 1 ? 'Aufenthalt' : 'Aufenthalte'],
+      [String(t.hotels), 'Hotels'],
+      [String(t.nights), 'Nächte'],
+      [t.upgrade_quote != null ? t.upgrade_quote + ' %' : '–', 'davon mit Upgrade'],
     ]) {
-      const item = el('div');
-      item.appendChild(el('div', 'total-num', String(num)));
-      item.appendChild(el('div', 'total-label', label));
-      totals.appendChild(item);
+      const card = el('div', 'total-card');
+      card.appendChild(el('div', 'total-num', num));
+      card.appendChild(el('div', 'total-label', label));
+      totals.appendChild(card);
     }
     box.appendChild(totals);
 
-    box.appendChild(statTable(
-      'Was der Status im Schnitt bringt',
-      ['Programm', 'Status', 'Aufenthalte', 'mit Upgrade', 'Ø Kategorien'],
-      data.byStatus.map((r) => [r.program, r.status_level || '–', r.stays, r.upgraded, r.avg_steps ?? '–'])
-    ));
+    if (!data.groups.length) {
+      box.appendChild(el('p', 'empty', 'Sobald Aufenthalte eingetragen sind, steht hier die Auswertung.'));
+      return;
+    }
 
-    box.appendChild(statTable(
-      'Nach Stadt',
-      ['Stadt', 'Programm', 'Aufenthalte', 'Ø Kategorien'],
-      data.byCity.map((r) => [r.city || '–', r.program || '–', r.stays, r.avg_steps ?? '–'])
-    ));
+    for (const g of data.groups) {
+      const card = el('div', 'group-card');
+      const head = el('div', 'group-head');
+      const title = el('div');
+      title.appendChild(el('div', 'group-title', g.program));
+      const badge = el('span', 'badge badge-status', g.status);
+      badge.style.background = statusColor(g.status);
+      title.appendChild(badge);
+      head.appendChild(title);
+      head.appendChild(el('div', 'group-sub', g.stays + (g.stays === 1 ? ' Aufenthalt' : ' Aufenthalte')));
+      card.appendChild(head);
+
+      const grid = el('div', 'group-grid');
+
+      const upgrades = el('div');
+      upgrades.appendChild(el('h4', null, 'UPGRADES'));
+      const stats = el('div');
+      stats.appendChild(el('div', 'total-num', g.upgrade_quote != null ? g.upgrade_quote + ' %' : '–'));
+      stats.appendChild(el('div', 'total-label', 'Upgradequote'));
+      if (g.avg_steps != null) {
+        stats.appendChild(el('div', 'group-sub', 'Ø ' + (g.avg_steps > 0 ? '+' : '') + String(g.avg_steps).replace('.', ',') + ' Kategorien'));
+      }
+      upgrades.appendChild(stats);
+      grid.appendChild(upgrades);
+
+      if (g.benefits.length) {
+        const benefits = el('div');
+        benefits.appendChild(el('h4', null, 'BENEFITS ERHALTEN'));
+        for (const b of g.benefits) {
+          const row = el('div', 'bar-row');
+          const top = el('div', 'bar-top');
+          top.appendChild(el('span', null, b.name));
+          top.appendChild(el('span', 'muted', b.quote + ' %'));
+          row.appendChild(top);
+          const track = el('div', 'bar-track');
+          const fill = el('div', 'bar-fill');
+          fill.style.width = b.quote + '%';
+          track.appendChild(fill);
+          row.appendChild(track);
+          benefits.appendChild(row);
+        }
+        grid.appendChild(benefits);
+      }
+
+      if (g.top_hotels.length) {
+        const hotels = el('div');
+        hotels.appendChild(el('h4', null, 'BESTE HÄUSER FÜR UPGRADES'));
+        for (const h of g.top_hotels) {
+          const row = el('div', 'top-hotel');
+          row.appendChild(el('span', null, h.name));
+          row.appendChild(el('span', 'n', '  ' + h.count + '× · bis +' + h.best));
+          hotels.appendChild(row);
+        }
+        grid.appendChild(hotels);
+      }
+
+      card.appendChild(grid);
+      box.appendChild(card);
+    }
   } catch (e) {
     box.innerHTML = '';
     box.appendChild(el('p', 'empty', e.message));
   }
 }
-
-function statTable(title, headers, rows) {
-  const block = el('section', 'stat-block');
-  block.appendChild(el('h2', null, title));
-  if (!rows.length) {
-    block.appendChild(el('p', 'empty', 'Dafür reichen die Einträge noch nicht.'));
-    return block;
-  }
-  const table = document.createElement('table');
-  const thead = document.createElement('tr');
-  headers.forEach((h, i) => {
-    const th = el('th', i > 1 ? 'num' : null, h);
-    thead.appendChild(th);
-  });
-  table.appendChild(thead);
-  for (const row of rows) {
-    const tr = document.createElement('tr');
-    row.forEach((cell, i) => tr.appendChild(el('td', i > 1 ? 'num' : null, String(cell))));
-    table.appendChild(tr);
-  }
-  block.appendChild(table);
-  return block;
-}
+$('#stats-scope').addEventListener('change', loadStats);
 
 /* ------------------------------------------------------------- Protokoll */
 
@@ -1229,6 +1524,7 @@ const EVENT_TEXT = {
   login_ok: 'angemeldet',
   login_fail: 'Anmeldung fehlgeschlagen',
   login_blocked: 'gesperrt nach Fehlversuchen',
+  member_create: 'Konto angelegt',
   stay_create: 'Aufenthalt eingetragen',
   stay_delete: 'Aufenthalt gelöscht',
   hotel_create: 'Hotel angelegt',
@@ -1239,13 +1535,12 @@ $('#log-open').addEventListener('click', async () => {
   const box = $('#log-body');
   const admin = prompt('Adminpasswort');
   if (!admin) return;
-
   box.innerHTML = '<p class="log-note">Wird geladen …</p>';
   try {
     const res = await fetch('/api/log', {
       headers: {
         'x-stay-pass': state.pass,
-        'x-stay-name': encodeURIComponent(state.me || ''),
+        'x-stay-user': encodeURIComponent(state.email || state.me || ''),
         'x-stay-admin': admin,
       },
     });
@@ -1262,13 +1557,11 @@ $('#log-open').addEventListener('click', async () => {
     const head = document.createElement('tr');
     for (const h of ['Zeitpunkt', 'Vorgang', 'Name', 'IP', 'Ort', 'Netz']) head.appendChild(el('th', null, h));
     table.appendChild(head);
-
     for (const e of data.entries) {
       const tr = document.createElement('tr');
       tr.appendChild(el('td', null, new Date(e.ts).toLocaleString('de-DE')));
-      const ev = el('td', 'ev ' + (e.event.includes('fail') ? 'ev-fail' : e.event.includes('blocked') ? 'ev-blocked' : ''),
-        EVENT_TEXT[e.event] || e.event);
-      tr.appendChild(ev);
+      tr.appendChild(el('td', 'ev ' + (e.event.includes('fail') ? 'ev-fail' : e.event.includes('blocked') ? 'ev-blocked' : ''),
+        EVENT_TEXT[e.event] || e.event));
       tr.appendChild(el('td', null, e.name || '–'));
       tr.appendChild(el('td', null, e.ip || '–'));
       tr.appendChild(el('td', null, [e.city, e.country].filter(Boolean).join(', ') || '–'));
@@ -1291,6 +1584,4 @@ if (state.pass && state.email) {
     $('#gate-email').value = state.email || '';
   });
 }
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
-}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

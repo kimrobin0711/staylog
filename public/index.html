@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>stayLOG</title>
-<meta name="theme-color" content="#E9E7E0">
+<meta name="theme-color" content="#F2F0EA">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,7 +13,7 @@
 </head>
 <body>
 
-<!-- Anmeldung -->
+<!-- ------------------------------------------------------------ Anmeldung -->
 <section id="gate" class="gate">
   <div class="gate-inner">
     <h1 class="wordmark">stay<span>LOG</span></h1>
@@ -31,163 +31,222 @@
 
 <div id="app" hidden>
 
+  <!-- ---------------------------------------------------------- Kopfzeile -->
   <header class="topbar">
-    <h1 class="wordmark small">stay<span>LOG</span></h1>
-    <div class="topbar-right">
-      <button id="who" class="who" title="Namen ändern oder abmelden"></button>
-      <button id="settings-toggle" class="icon-btn" title="Einstellungen" aria-label="Einstellungen">⚙</button>
+    <div class="topbar-inner">
+      <button id="brand" class="wordmark small">stay<span>LOG</span></button>
+
+      <div class="search-wrap">
+        <input type="search" id="f-text" placeholder="Hotel, Stadt, Zimmer oder Notiz suchen">
+      </div>
+
+      <nav class="topnav">
+        <button data-view="stays" class="topnav-btn is-on">Aufenthalte</button>
+        <button data-view="stats" class="topnav-btn">Auswertung</button>
+      </nav>
+
+      <button id="new-stay" class="btn btn-solid btn-new">+ Aufenthalt</button>
+
+      <div class="topbar-user">
+        <button id="who" class="who" title="Abmelden"></button>
+        <button id="settings-toggle" class="icon-btn" title="Einstellungen" aria-label="Einstellungen">&#9881;</button>
+      </div>
     </div>
   </header>
 
+  <!-- ------------------------------------------------------ Einstellungen -->
   <div id="settings-veil" class="veil"></div>
-  <aside id="settings" class="settings" aria-label="Einstellungen">
-    <header class="settings-head">
+  <aside id="settings" class="drawer" aria-label="Einstellungen">
+    <header class="drawer-head">
       <h2>Deine Statuslevel</h2>
-      <button type="button" id="settings-close" class="icon-btn" aria-label="Schließen">×</button>
+      <button type="button" id="settings-close" class="icon-btn" aria-label="Schließen">&times;</button>
     </header>
-    <div class="settings-body">
-      <p class="settings-note">Einmal gepflegt, wird der passende Status beim Eintragen automatisch gesetzt. Hängt an deiner Adresse, gilt also auf allen Geräten.</p>
+    <div class="drawer-body">
+      <p class="note">Einmal gepflegt, wird der passende Status beim Eintragen automatisch gesetzt. Hängt an deiner Adresse, gilt also auf allen Geräten.</p>
       <div id="status-settings" class="status-settings"></div>
       <button type="button" id="status-add" class="btn btn-quiet">Programm hinzufügen</button>
     </div>
-    <footer class="settings-foot">
+    <footer class="drawer-foot">
       <button type="button" id="settings-cancel" class="btn btn-quiet">Verwerfen</button>
       <button type="button" id="settings-save" class="btn btn-solid">Speichern</button>
     </footer>
   </aside>
 
-  <!-- Aufenthalte -->
-  <main id="view-stays" class="view view-split">
-    <aside class="tree-pane">
-      <input type="search" id="f-text" placeholder="Suchen: Hotel, Zimmer, Notiz">
-      <button type="button" id="tree-all" class="tree-all">Alle Aufenthalte</button>
-      <nav id="tree" class="tree"></nav>
-    </aside>
+  <!-- ------------------------------------------------------- Aufenthalte -->
+  <main id="view-stays" class="view">
+    <div class="workspace">
 
-    <div class="stay-pane">
-      <div class="filters" id="filters">
-        <select id="f-program"><option value="">Alle Programme</option></select>
-        <select id="f-author"><option value="">Alle Personen</option></select>
-        <select id="f-status"><option value="">Alle Statuslevel</option></select>
-        <label class="check-inline"><input type="checkbox" id="f-upgraded"> nur mit Upgrade</label>
-      </div>
-      <p id="stay-count" class="stay-count"></p>
-      <div id="stay-list" class="stay-list"></div>
+      <aside class="filter-pane" id="filter-pane">
+        <div class="filter-head">
+          <h2>Filter</h2>
+          <button type="button" id="filter-close" class="icon-btn filter-close" aria-label="Schließen">&times;</button>
+        </div>
+        <div class="filter-fields">
+          <label>Land<select id="f-country"></select></label>
+          <label>Stadt<select id="f-city"></select></label>
+          <label>Hotel<select id="f-hotel"></select></label>
+          <label>Programm<select id="f-program"></select></label>
+          <label>Status<select id="f-status"></select></label>
+          <label>Person<select id="f-author"></select></label>
+          <div class="filter-dates">
+            <label>von<input type="date" id="f-from"></label>
+            <label>bis<input type="date" id="f-to"></label>
+          </div>
+          <label class="check-inline"><input type="checkbox" id="f-upgraded"> nur Aufenthalte mit Upgrade</label>
+        </div>
+      </aside>
+      <div id="filter-veil" class="veil"></div>
+
+      <section class="list-pane">
+        <div class="list-head">
+          <div class="list-tools">
+            <button type="button" id="filter-open" class="btn btn-quiet btn-filter">Filter</button>
+            <span id="stay-count" class="stay-count"></span>
+          </div>
+          <div id="chips" class="chips-active"></div>
+        </div>
+        <div id="stay-list" class="stay-list"></div>
+      </section>
+
+      <aside class="detail-pane" id="detail-pane">
+        <button type="button" id="detail-close" class="icon-btn detail-close" aria-label="Schließen">&times;</button>
+        <div id="detail-body" class="detail-body">
+          <p class="detail-placeholder">Wähle einen Aufenthalt, um alles dazu zu sehen.</p>
+        </div>
+      </aside>
     </div>
   </main>
 
-  <!-- Eintragen -->
+  <!-- --------------------------------------------------------- Eintragen -->
   <main id="view-new" class="view" hidden>
+    <div class="form-shell">
 
-    <ol class="steps" id="picker">
-      <li class="step" data-step="country">
-        <h2>Land</h2>
-        <input id="p-country" placeholder="Land eingeben" autocomplete="off">
-        <div id="country-results" class="options"></div>
-      </li>
+      <ol class="steps" id="picker">
+        <li class="step" data-step="country">
+          <h2>Land</h2>
+          <input id="p-country" placeholder="Land eingeben" autocomplete="off">
+          <div id="country-results" class="options"></div>
+        </li>
+        <li class="step" data-step="city" hidden>
+          <h2>Stadt</h2>
+          <input id="p-city" placeholder="Stadt eingeben" autocomplete="off">
+          <div id="city-results" class="options"></div>
+        </li>
+        <li class="step" data-step="hotel" hidden>
+          <h2>Hotel <span id="hotel-count" class="step-count"></span></h2>
+          <input id="p-hotel" placeholder="Nach Name suchen" autocomplete="off">
+          <div id="hotel-results" class="options"></div>
+          <button id="hotel-manual" class="btn btn-quiet">Hotel ist nicht dabei – von Hand eintragen</button>
+        </li>
+      </ol>
 
-      <li class="step" data-step="city" hidden>
-        <h2>Stadt</h2>
-        <input id="p-city" placeholder="Stadt eingeben" autocomplete="off">
-        <div id="city-results" class="options"></div>
-      </li>
-
-      <li class="step" data-step="hotel" hidden>
-        <h2>Hotel <span id="hotel-count" class="step-count"></span></h2>
-        <input id="p-hotel" placeholder="Nach Name filtern" autocomplete="off">
-        <div id="hotel-results" class="options"></div>
-        <button id="hotel-manual" class="btn btn-quiet">Hotel ist nicht dabei – von Hand eintragen</button>
-      </li>
-    </ol>
-
-    <form id="stay-form" hidden>
-      <div class="chosen">
-        <div class="chosen-head">
-          <div>
-            <strong id="chosen-name"></strong>
-            <span id="chosen-place" class="muted"></span>
+      <form id="stay-form" hidden>
+        <article class="hotel-card">
+          <div class="hotel-card-head">
+            <div>
+              <strong id="chosen-name"></strong>
+              <span id="chosen-place" class="muted"></span>
+            </div>
+            <button type="button" id="chosen-reset" class="btn btn-quiet">ändern</button>
           </div>
-          <button type="button" id="chosen-reset" class="btn btn-quiet">ändern</button>
-        </div>
-        <p id="chosen-rating" class="chosen-rating" hidden></p>
-        <p id="chosen-desc" class="chosen-desc" hidden></p>
-        <div id="chosen-links" class="chosen-links"></div>
-        <div id="chosen-gallery" class="gallery"></div>
-      </div>
+          <p id="chosen-rating" class="rating" hidden></p>
+          <p id="chosen-desc" class="hotel-desc" hidden></p>
+          <div id="chosen-links" class="hotel-links"></div>
+          <div id="chosen-gallery" class="gallery"></div>
+        </article>
 
-      <div class="grid2">
-        <label>Gebuchte Kategorie
-          <select id="s-booked"></select>
-        </label>
-        <label>Erhaltene Kategorie
-          <select id="s-received"></select>
-        </label>
-        <label>Programm
-          <select id="s-program"></select>
-        </label>
-        <label>Dein Status
-          <select id="s-status"></select>
-        </label>
-        <label>Anreise
-          <input type="date" id="s-checkin" required>
-        </label>
-        <label>Abreise
-          <input type="date" id="s-checkout">
-        </label>
-        <label>Preis gesamt
-          <input type="number" id="s-price" step="0.01" inputmode="decimal" placeholder="z.&nbsp;B. 420">
-        </label>
-        <label>Währung
-          <select id="s-currency">
-            <option>EUR</option><option>CHF</option><option>USD</option>
-            <option>GBP</option><option>THB</option><option>AED</option><option>JPY</option>
+        <section class="form-block">
+          <h3>Zimmer</h3>
+          <div class="room-flow">
+            <label>Gebuchte Kategorie<select id="s-booked"></select></label>
+            <div id="upgrade-hint" class="upgrade-hint">&nbsp;</div>
+            <label>Erhaltene Kategorie<select id="s-received"></select></label>
+          </div>
+          <details id="rooms-box" class="rooms-box">
+            <summary class="rooms-head">
+              <span>Zimmerkategorien des Hotels</span>
+              <span id="rooms-status" class="rooms-status"></span>
+            </summary>
+            <div id="rooms-list" class="rooms-list"></div>
+            <div class="rooms-add">
+              <input id="room-new" placeholder="Kategorie ergänzen">
+              <button type="button" id="room-add" class="btn btn-quiet">hinzufügen</button>
+            </div>
+          </details>
+        </section>
+
+        <section class="form-block">
+          <h3>Aufenthalt</h3>
+          <div class="grid2">
+            <label>Anreise<input type="date" id="s-checkin" required></label>
+            <label>Abreise<input type="date" id="s-checkout"></label>
+            <label>Preis gesamt<input type="number" id="s-price" step="0.01" inputmode="decimal" placeholder="z.&nbsp;B. 420"></label>
+            <label>Währung
+              <select id="s-currency">
+                <option>EUR</option><option>CHF</option><option>USD</option>
+                <option>GBP</option><option>THB</option><option>AED</option><option>JPY</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="form-block">
+          <h3>Loyalty</h3>
+          <div class="grid2">
+            <label>Programm<select id="s-program"></select></label>
+            <label>Dein Status<select id="s-status"></select></label>
+          </div>
+        </section>
+
+        <section class="form-block">
+          <h3>Benefits</h3>
+          <div id="benefit-list" class="chips"></div>
+          <div id="benefit-values" class="benefit-values"></div>
+        </section>
+
+        <section class="form-block">
+          <h3>Erfahrung</h3>
+          <textarea id="s-notes" rows="5" placeholder="Wie lief das Einchecken, was wurde angeboten, was war der Haken"></textarea>
+        </section>
+
+        <section class="form-block">
+          <h3>Fotos</h3>
+          <input type="file" id="s-photos" accept="image/*" multiple>
+          <div id="photo-previews" class="photo-previews"></div>
+        </section>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-solid wide">Aufenthalt eintragen</button>
+          <p id="form-error" class="form-error" hidden></p>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <!-- --------------------------------------------------------- Auswertung -->
+  <main id="view-stats" class="view" hidden>
+    <div class="stats-shell">
+      <div class="stats-head">
+        <h1>Auswertung</h1>
+        <label class="inline-select">Sicht
+          <select id="stats-scope">
+            <option value="">die ganze Runde</option>
+            <option value="me">nur ich</option>
           </select>
         </label>
       </div>
-
-      <details id="rooms-box" class="rooms-box">
-        <summary class="rooms-head">
-          <span>Zimmerkategorien des Hotels</span>
-          <span id="rooms-status" class="rooms-status"></span>
-        </summary>
-        <div id="rooms-list" class="rooms-list"></div>
-        <div class="rooms-add">
-          <input id="room-new" placeholder="Kategorie ergänzen">
-          <button type="button" id="room-add" class="btn btn-quiet">hinzufügen</button>
-        </div>
-      </details>
-
-      <fieldset class="benefits">
-        <legend>Was gab es dazu</legend>
-        <div id="benefit-list" class="chips"></div>
-      </fieldset>
-
-      <label class="block">Was solltest du der Gruppe noch erzählen
-        <textarea id="s-notes" rows="4" placeholder="Wie lief das Einchecken, was wurde angeboten, was war der Haken"></textarea>
-      </label>
-
-      <label class="block">Bilder
-        <input type="file" id="s-photos" accept="image/*" multiple>
-      </label>
-      <div id="photo-previews" class="photo-previews"></div>
-
-      <button type="submit" class="btn btn-solid wide">Aufenthalt eintragen</button>
-      <p id="form-error" class="form-error" hidden></p>
-    </form>
+      <div id="stats-body"></div>
+      <section class="log-section">
+        <button id="log-open" class="btn btn-quiet">Zugriffsprotokoll ansehen</button>
+        <div id="log-body"></div>
+      </section>
+    </div>
   </main>
 
-  <!-- Auswertung -->
-  <main id="view-stats" class="view" hidden>
-    <div id="stats-body"></div>
-    <section class="log-section">
-      <button id="log-open" class="btn btn-quiet">Zugriffsprotokoll ansehen</button>
-      <div id="log-body"></div>
-    </section>
-  </main>
-
+  <!-- ------------------------------------------------- Navigation (mobil) -->
   <nav class="tabs">
     <button data-view="stays" class="tab is-on">Aufenthalte</button>
-    <button data-view="new" class="tab">Eintragen</button>
+    <button data-view="new" class="tab tab-primary">Eintragen</button>
     <button data-view="stats" class="tab">Auswertung</button>
   </nav>
 </div>

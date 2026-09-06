@@ -1,0 +1,6 @@
+-- Benefits erhalten jetzt optionale Werte (z. B. Late Checkout -> 16:00).
+-- Alte Eintraege sind reine Zeichenketten und werden hier umgewandelt.
+-- Vorher pruefen mit:
+--   SELECT id, benefits FROM stays WHERE benefits LIKE '["%';
+--
+-- Die App liest beide Formate, diese Umwandlung ist also freiwillig.

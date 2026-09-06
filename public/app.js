@@ -29,6 +29,7 @@ const state = {
   pollTimer: null,
   skipEnrichment: false,
   programTouched: false,
+  checkoutTouched: false,
   stays: [],
   places: [],
   selected: null,
@@ -1288,6 +1289,7 @@ async function editStay(stay) {
   $('#s-checkin').value = stay.checkin || '';
   $('#s-checkout').value = stay.checkout || '';
   $('#s-checkout').min = stay.checkin || '';
+  state.checkoutTouched = Boolean(stay.checkout);
   $('#s-booked').value = stay.booked_room || '';
   $('#s-received').value = stay.received_room || '';
   $('#s-price').value = stay.price ?? '';
@@ -1799,11 +1801,10 @@ function resetPicker() {
   $('#benefit-values').innerHTML = '';
   $('#chosen-gallery').innerHTML = '';
   document.querySelectorAll('.gallery-note').forEach((n) => n.remove());
+  state.checkoutTouched = false;
   const heute = new Date();
   $('#s-checkin').valueAsDate = heute;
-  const morgen = new Date(heute);
-  morgen.setDate(morgen.getDate() + 1);
-  $('#s-checkout').valueAsDate = morgen;
+  $('#s-checkout').value = tagDanach($('#s-checkin').value);
   $('#s-checkout').min = $('#s-checkin').value;
   $('#rank-warning').hidden = true;
 
@@ -2207,7 +2208,16 @@ function updateUpgradeHint() {
 $('#s-booked').addEventListener('change', updateUpgradeHint);
 $('#s-received').addEventListener('change', updateUpgradeHint);
 
-// Der Abreisekalender startet beim Anreisetag und lässt nichts davor zu.
+const tagDanach = (datum) => {
+  const d = new Date(datum);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+};
+
+// Hat der Nutzer die Abreise selbst gesetzt, bleibt sie unangetastet.
+$('#s-checkout').addEventListener('input', () => { state.checkoutTouched = true; });
+
+// Die Abreise folgt der Anreise, solange sie automatisch gesetzt wurde.
 $('#s-checkin').addEventListener('change', () => {
   const anreise = $('#s-checkin').value;
   const abreise = $('#s-checkout');
@@ -2215,11 +2225,8 @@ $('#s-checkin').addEventListener('change', () => {
 
   abreise.min = anreise;
 
-  // Leer oder vor der Anreise: auf den Folgetag setzen, das ist der Normalfall.
-  if (!abreise.value || abreise.value < anreise) {
-    const naechster = new Date(anreise);
-    naechster.setDate(naechster.getDate() + 1);
-    abreise.value = naechster.toISOString().slice(0, 10);
+  if (!state.checkoutTouched || !abreise.value || abreise.value < anreise) {
+    abreise.value = tagDanach(anreise);
   }
 });
 
@@ -2308,9 +2315,7 @@ function buildForm() {
 
   const heute = new Date();
   $('#s-checkin').valueAsDate = heute;
-  const morgen = new Date(heute);
-  morgen.setDate(morgen.getDate() + 1);
-  $('#s-checkout').valueAsDate = morgen;
+  $('#s-checkout').value = tagDanach($('#s-checkin').value);
   $('#s-checkout').min = $('#s-checkin').value;
 }
 

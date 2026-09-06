@@ -1,5 +1,5 @@
-﻿// Die Version steht in version.json und wird beim Packen gesetzt.
-const VERSION = '20260906-170008';
+// Die Version steht in version.json und wird beim Packen gesetzt.
+const VERSION = '20260906-170839';
 const SHELL = 'staylog-' + VERSION;
 const FILES = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest'];
 
@@ -19,7 +19,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (url.pathname.startsWith('/api/') || e.request.method !== 'GET') return;
 
-  // Die Versionsdatei nie aus dem Speicher â€“ sonst merkt niemand eine Neuerung.
+  // Die Versionsdatei nie aus dem Speicher – sonst merkt niemand eine Neuerung.
   if (url.pathname === '/version.json') {
     e.respondWith(fetch(e.request, { cache: 'no-store' }).catch(() => new Response('{}')));
     return;

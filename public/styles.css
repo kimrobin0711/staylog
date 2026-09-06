@@ -47,7 +47,16 @@ p { margin: 0; }
   border: 0; background: none; padding: 0; color: inherit;
 }
 .wordmark span { color: var(--gold); font-style: italic; font-weight: 500; }
-.wordmark.small { font-size: 1.3rem; cursor: pointer; }
+.wordmark.small { font-size: 1.3rem; }
+
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink);
+}
+.brand .mark { width: 26px; height: 26px; flex: none; }
+
+.gate-brand { display: flex; align-items: center; gap: 14px; }
+.gate-brand .mark { width: 46px; height: 46px; flex: none; color: var(--ink); }
 
 /* ------------------------------------------------------------ Anmeldung */
 
@@ -390,7 +399,20 @@ body { padding-bottom: 0; }
 
 /* ------------------------------------------------------- Eintragen: Form */
 
-.form-shell { max-width: 780px; margin: 0 auto; }
+.form-shell { max-width: none; }
+
+/* Auf breiten Schirmen zwei Spalten, damit die Flaeche genutzt wird. */
+@media (min-width: 1100px) {
+  #stay-form {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; align-items: start;
+  }
+  #stay-form > .hotel-card,
+  #stay-form > .edit-banner,
+  #stay-form > .form-actions { grid-column: 1 / -1; }
+  .form-block { margin-bottom: 0; }
+  .form-actions .btn { max-width: 340px; }
+}
 
 .steps { list-style: none; margin: 0; padding: 0; }
 .step { margin-bottom: 20px; }

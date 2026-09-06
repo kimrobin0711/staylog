@@ -1,27 +1,38 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>stayLOG</title>
 <meta name="theme-color" content="#F2F0EA">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=20260906-170008">
+<link rel="stylesheet" href="/styles.css?v=20260906-170839">
 </head>
 <body>
 
 <!-- ------------------------------------------------------------ Anmeldung -->
 <section id="gate" class="gate">
   <div class="gate-inner">
-    <h1 class="wordmark">stay<span>LOG</span></h1>
-    <p class="gate-text">Was der Status wirklich gebracht hat.</p>
+    <div class="gate-brand">
+      <svg class="mark" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+        <path d="M17 3.5c-6.6 0-12 5.3-12 11.9 0 8.6 10.6 21.9 11.1 22.4a1.2 1.2 0 0 0 1.9 0c.4-.5 11-13.8 11-22.4 0-6.6-5.4-11.9-12-11.9Z" fill="currentColor"/>
+        <path d="M11.5 10.5v10M11.5 15h9a2.5 2.5 0 0 1 2.5 2.5v3" stroke="var(--gold-lite)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <circle cx="15.4" cy="12.4" r="1.7" fill="var(--gold-lite)"/>
+        <path d="M32.5 17.5 43 7M35.5 6.5H44v8.5" stroke="var(--gold)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </svg>
+      <h1 class="wordmark">stay<span>LOG</span></h1>
+    </div>
+    <p class="gate-text">Hotels. Status. Was dabei herauskam.</p>
     <input id="gate-email" type="email" placeholder="E-Mail-Adresse" autocomplete="username" inputmode="email">
     <input id="gate-key" type="password" placeholder="Passwort" autocomplete="current-password">
     <div id="gate-newcomer" hidden>
-      <p class="gate-hint">Du bist zum ersten Mal hier. Unter welchem Namen sollen deine EintrÃ¤ge stehen?</p>
+      <p class="gate-hint">Du bist zum ersten Mal hier. Unter welchem Namen sollen deine Einträge stehen?</p>
       <input id="gate-name" type="text" placeholder="Dein Name" autocomplete="nickname">
     </div>
     <button id="gate-go" class="btn btn-solid">Anmelden</button>
@@ -34,7 +45,15 @@
   <!-- ---------------------------------------------------------- Kopfzeile -->
   <header class="topbar">
     <div class="topbar-inner">
-      <button id="brand" class="wordmark small">stay<span>LOG</span></button>
+      <button id="brand" class="brand">
+        <svg class="mark" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+          <path d="M17 3.5c-6.6 0-12 5.3-12 11.9 0 8.6 10.6 21.9 11.1 22.4a1.2 1.2 0 0 0 1.9 0c.4-.5 11-13.8 11-22.4 0-6.6-5.4-11.9-12-11.9Z" fill="currentColor"/>
+          <path d="M11.5 10.5v10M11.5 15h9a2.5 2.5 0 0 1 2.5 2.5v3" stroke="var(--gold-lite)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <circle cx="15.4" cy="12.4" r="1.7" fill="var(--gold-lite)"/>
+          <path d="M32.5 17.5 43 7M35.5 6.5H44v8.5" stroke="var(--gold)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <span class="wordmark small">stay<span>LOG</span></span>
+      </button>
 
       <div class="search-wrap">
         <input type="search" id="f-text" placeholder="Hotel, Stadt, Zimmer oder Notiz suchen">
@@ -59,12 +78,12 @@
   <aside id="settings" class="drawer" aria-label="Einstellungen">
     <header class="drawer-head">
       <h2>Deine Statuslevel</h2>
-      <button type="button" id="settings-close" class="icon-btn" aria-label="SchlieÃŸen">&times;</button>
+      <button type="button" id="settings-close" class="icon-btn" aria-label="Schließen">&times;</button>
     </header>
     <div class="drawer-body">
-      <p class="note">Einmal gepflegt, wird der passende Status beim Eintragen automatisch gesetzt. HÃ¤ngt an deiner Adresse, gilt also auf allen GerÃ¤ten.</p>
+      <p class="note">Einmal gepflegt, wird der passende Status beim Eintragen automatisch gesetzt. Hängt an deiner Adresse, gilt also auf allen Geräten.</p>
       <div id="status-settings" class="status-settings"></div>
-      <button type="button" id="status-add" class="btn btn-quiet">Programm hinzufÃ¼gen</button>
+      <button type="button" id="status-add" class="btn btn-quiet">Programm hinzufügen</button>
 
       <section class="account">
         <h3>Konto</h3>
@@ -79,12 +98,12 @@
   </aside>
 
   <div id="update-bar" class="update-bar" hidden>
-    <span>Eine neue Fassung von stayLOG ist verfÃ¼gbar.</span>
+    <span>Eine neue Fassung von stayLOG ist verfügbar.</span>
     <button type="button" id="update-now" class="btn btn-quiet">Jetzt neu laden</button>
   </div>
 
   <div id="guest-bar" class="guest-bar" hidden>
-    <span id="guest-text">Gastansicht â€“ du kannst alles ansehen, aber nichts eintragen.</span>
+    <span id="guest-text">Gastansicht – du kannst alles ansehen, aber nichts eintragen.</span>
     <button type="button" id="guest-login" class="btn btn-quiet">Anmelden</button>
   </div>
 
@@ -95,7 +114,7 @@
       <aside class="filter-pane" id="filter-pane">
         <div class="filter-head">
           <h2>Filter</h2>
-          <button type="button" id="filter-close" class="icon-btn filter-close" aria-label="SchlieÃŸen">&times;</button>
+          <button type="button" id="filter-close" class="icon-btn filter-close" aria-label="Schließen">&times;</button>
         </div>
         <div class="filter-fields">
           <label>Land<select id="f-country"></select></label>
@@ -126,9 +145,9 @@
       </section>
 
       <aside class="detail-pane" id="detail-pane">
-        <button type="button" id="detail-close" class="icon-btn detail-close" aria-label="SchlieÃŸen">&times;</button>
+        <button type="button" id="detail-close" class="icon-btn detail-close" aria-label="Schließen">&times;</button>
         <div id="detail-body" class="detail-body">
-          <p class="detail-placeholder">WÃ¤hle einen Aufenthalt, um alles dazu zu sehen.</p>
+          <p class="detail-placeholder">Wähle einen Aufenthalt, um alles dazu zu sehen.</p>
         </div>
       </aside>
     </div>
@@ -153,7 +172,7 @@
           <h2>Hotel <span id="hotel-count" class="step-count"></span></h2>
           <input id="p-hotel" placeholder="Nach Name suchen" autocomplete="off">
           <div id="hotel-results" class="options"></div>
-          <button id="hotel-manual" class="btn btn-quiet">Hotel ist nicht dabei â€“ von Hand eintragen</button>
+          <button id="hotel-manual" class="btn btn-quiet">Hotel ist nicht dabei – von Hand eintragen</button>
         </li>
       </ol>
 
@@ -168,7 +187,7 @@
               <strong id="chosen-name"></strong>
               <span id="chosen-place" class="muted"></span>
             </div>
-            <button type="button" id="chosen-reset" class="btn btn-quiet">Ã¤ndern</button>
+            <button type="button" id="chosen-reset" class="btn btn-quiet">ändern</button>
           </div>
           <p id="chosen-rating" class="rating" hidden></p>
           <p id="chosen-desc" class="hotel-desc" hidden></p>
@@ -184,8 +203,8 @@
               <select id="s-booked"></select>
             </div>
             <div id="upgrade-hint" class="upgrade-badge">
-              <span class="upgrade-arrow">â†“</span>
-              <span id="upgrade-text">Kategorien wÃ¤hlen</span>
+              <span class="upgrade-arrow">↓</span>
+              <span id="upgrade-text">Kategorien wählen</span>
             </div>
             <div class="room-slot">
               <span class="room-slot-label">ERHALTEN</span>
@@ -200,8 +219,8 @@
             </summary>
             <div id="rooms-list" class="rooms-list"></div>
             <div class="rooms-add">
-              <input id="room-new" placeholder="Kategorie ergÃ¤nzen">
-              <button type="button" id="room-add" class="btn btn-quiet">hinzufÃ¼gen</button>
+              <input id="room-new" placeholder="Kategorie ergänzen">
+              <button type="button" id="room-add" class="btn btn-quiet">hinzufügen</button>
             </div>
             <button type="button" id="rooms-refresh" class="link-btn">neu recherchieren</button>
           </details>
@@ -213,7 +232,7 @@
             <label>Anreise<input type="date" id="s-checkin" required></label>
             <label>Abreise<input type="date" id="s-checkout"></label>
             <label>Preis gesamt<input type="number" id="s-price" step="0.01" inputmode="decimal" placeholder="z.&nbsp;B. 420"></label>
-            <label>WÃ¤hrung
+            <label>Währung
               <select id="s-currency">
                 <option>EUR</option><option>CHF</option><option>USD</option>
                 <option>GBP</option><option>THB</option><option>AED</option><option>JPY</option>
@@ -245,8 +264,8 @@
           <h3>Fotos</h3>
           <input type="file" id="s-photos" accept="image/*" multiple hidden>
           <button type="button" id="dropzone" class="dropzone">
-            <span class="dropzone-title">Fotos hinzufÃ¼gen</span>
-            <span class="dropzone-hint">Hierher ziehen oder klicken zum AuswÃ¤hlen</span>
+            <span class="dropzone-title">Fotos hinzufügen</span>
+            <span class="dropzone-hint">Hierher ziehen oder klicken zum Auswählen</span>
           </button>
           <div id="photo-previews" class="photo-previews"></div>
         </section>
@@ -287,6 +306,6 @@
   </nav>
 </div>
 
-<script src="/app.js?v=20260906-170008"></script>
+<script src="/app.js?v=20260906-170839"></script>
 </body>
 </html>

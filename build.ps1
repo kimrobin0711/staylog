@@ -1,18 +1,25 @@
 # stayLOG veroeffentlichen: Version setzen und hochladen.
 # Aufruf:  .\build.ps1
+#
+# Wichtig: Dateien werden ausdruecklich als UTF-8 ohne BOM gelesen und geschrieben.
+# Get-Content/Set-Content wuerden unter Windows PowerShell die Umlaute zerstoeren.
 
 $version = Get-Date -Format "yyyyMMdd-HHmmss"
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$root = $PSScriptRoot
 
-# Versionsdatei, die der Browser abfragt
-"{""version"": ""$version""}" | Set-Content -NoNewline -Encoding UTF8 .\public\version.json
+[System.IO.File]::WriteAllText(
+  (Join-Path $root "public\version.json"),
+  "{""version"": ""$version""}",
+  $utf8
+)
 
-# Version in die Dateien schreiben. Ersetzt den Platzhalter beim ersten Mal
-# und danach jeweils die vorherige Version.
 $pattern = '__VERSION__|\d{8}-\d{6}'
-foreach ($file in @(".\public\index.html", ".\public\sw.js")) {
-  $text = Get-Content $file -Raw
+foreach ($name in @("public\index.html", "public\sw.js")) {
+  $path = Join-Path $root $name
+  $text = [System.IO.File]::ReadAllText($path, $utf8)
   $text = [regex]::Replace($text, $pattern, $version)
-  Set-Content -NoNewline -Encoding UTF8 $file $text
+  [System.IO.File]::WriteAllText($path, $text, $utf8)
 }
 
 npx wrangler pages deploy public --branch production --commit-dirty=true

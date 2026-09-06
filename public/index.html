@@ -90,19 +90,13 @@
         <div id="chosen-gallery" class="gallery"></div>
       </div>
 
-      <div id="rooms-box" class="rooms-box">
-        <div class="rooms-head">
-          <h3>Zimmerkategorien</h3>
-          <span id="rooms-status" class="rooms-status"></span>
-        </div>
-        <div id="rooms-list" class="rooms-list"></div>
-        <div class="rooms-add">
-          <input id="room-new" placeholder="Kategorie ergänzen">
-          <button type="button" id="room-add" class="btn btn-quiet">hinzufügen</button>
-        </div>
-      </div>
-
       <div class="grid2">
+        <label>Gebuchte Kategorie
+          <select id="s-booked"></select>
+        </label>
+        <label>Erhaltene Kategorie
+          <select id="s-received"></select>
+        </label>
         <label>Programm
           <select id="s-program"></select>
         </label>
@@ -115,12 +109,6 @@
         <label>Abreise
           <input type="date" id="s-checkout">
         </label>
-        <label>Gebuchte Kategorie
-          <select id="s-booked"></select>
-        </label>
-        <label>Erhaltene Kategorie
-          <select id="s-received"></select>
-        </label>
         <label>Preis gesamt
           <input type="number" id="s-price" step="0.01" inputmode="decimal" placeholder="z.&nbsp;B. 420">
         </label>
@@ -131,6 +119,18 @@
           </select>
         </label>
       </div>
+
+      <details id="rooms-box" class="rooms-box">
+        <summary class="rooms-head">
+          <span>Zimmerkategorien des Hotels</span>
+          <span id="rooms-status" class="rooms-status"></span>
+        </summary>
+        <div id="rooms-list" class="rooms-list"></div>
+        <div class="rooms-add">
+          <input id="room-new" placeholder="Kategorie ergänzen">
+          <button type="button" id="room-add" class="btn btn-quiet">hinzufügen</button>
+        </div>
+      </details>
 
       <fieldset class="benefits">
         <legend>Was gab es dazu</legend>

@@ -456,6 +456,7 @@ function renderRooms() {
   const adder = document.querySelector('.rooms-add');
   const st = state.hotel?.enrich_status;
   const busy = !state.skipEnrichment && (st === 'pending' || st === 'running');
+  if (busy) state.wasBusy = true;
 
   list.innerHTML = '';
   adder.hidden = busy;
@@ -463,7 +464,7 @@ function renderRooms() {
   // Solange recherchiert wird, zeigen wir bewusst keine Kategorien –
   // eine allgemeine Markenliste sieht sonst aus wie ein Ergebnis.
   if (busy) {
-    status.textContent = '';
+    status.textContent = 'wird recherchiert …';
     const wait = el('div', 'rooms-wait');
     wait.appendChild(el('span', 'spinner'));
     const texts = el('div');
@@ -487,6 +488,10 @@ function renderRooms() {
 
   const rooms = state.rooms.length ? state.rooms : fallbackRooms();
   const isFallback = state.rooms.length === 0;
+
+  // Wenn die Recherche gerade fertig wurde, einmal kurz zeigen was da ist.
+  if (state.wasBusy && !isFallback) $('#rooms-box').open = true;
+  state.wasBusy = false;
 
   if (isFallback) {
     status.textContent = 'allgemeine Liste der Marke – bitte anpassen';

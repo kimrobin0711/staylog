@@ -323,9 +323,9 @@ async function enrichHotel(env, hotel) {
     },
     body: JSON.stringify({
       model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-      max_tokens: 2000,
+      max_tokens: 1500,
       messages: [{ role: 'user', content: ENRICH_PROMPT(hotel) }],
-      tools: [{ type: env.WEB_SEARCH_TOOL || 'web_search_20250305', name: 'web_search', max_uses: 4 }],
+      tools: [{ type: env.WEB_SEARCH_TOOL || 'web_search_20250305', name: 'web_search', max_uses: 3 }],
     }),
   });
 
@@ -401,6 +401,35 @@ async function runEnrichment(env, hotelId) {
 
 /* ------------------------------------- Bilder aus Wikimedia Commons */
 // Frei lizenziert, kein Schluessel noetig. Urheber und Lizenz kommen mit.
+
+// Das Vorschaubild der Hotelseite – dasselbe, das beim Teilen eines Links erscheint.
+async function siteImage(website) {
+  if (!website) return null;
+  try {
+    const res = await fetch(website, {
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; stayLOG/1.0)', 'accept': 'text/html' },
+      redirect: 'follow',
+    });
+    if (!res.ok) return null;
+    const html = (await res.text()).slice(0, 250000);
+
+    const patterns = [
+      /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
+      /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
+    ];
+    for (const re of patterns) {
+      const hit = html.match(re);
+      if (hit?.[1]) {
+        const absolute = new URL(hit[1], website).toString();
+        return { thumb: absolute, page: website, author: null, license: 'Hotelseite' };
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 async function commonsImages(query) {
   const url = new URL('https://commons.wikimedia.org/w/api.php');
@@ -599,13 +628,20 @@ export async function onRequest(context) {
       }
 
       if (sub === '/images' && method === 'GET') {
-        const hotel = await env.DB.prepare('SELECT name, city FROM hotels WHERE id = ?').bind(hotelId).first();
+        const hotel = await env.DB.prepare('SELECT name, city, website FROM hotels WHERE id = ?')
+          .bind(hotelId).first();
         if (!hotel) return fail('Hotel nicht gefunden', 404);
-        try {
-          return json(await commonsImages([hotel.name, hotel.city].filter(Boolean).join(' ')));
-        } catch {
-          return json([]);
+
+        const [site, commons] = await Promise.all([
+          siteImage(hotel.website),
+          commonsImages(hotel.name).catch(() => []),
+        ]);
+
+        let extra = [];
+        if (!commons.length && hotel.city) {
+          extra = await commonsImages(hotel.name + ' ' + hotel.city).catch(() => []);
         }
+        return json([site, ...commons, ...extra].filter(Boolean).slice(0, 6));
       }
 
       if (sub === '/enrich' && method === 'POST') {

@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=20260906-190301">
+<link rel="stylesheet" href="/styles.css?v=20260906-190801">
 </head>
 <body>
 
@@ -36,7 +36,7 @@
   <!-- ---------------------------------------------------------- Kopfzeile -->
   <header class="topbar">
     <div class="topbar-inner">
-      <button id="brand" class="brand">
+      <button id="brand" class="brand" title="Filter zurücksetzen und zur Übersicht">
         <img class="mark" src="/mark.png" alt="" width="44" height="44">
         <span class="wordmark small">stay<span>LOG</span></span>
       </button>
@@ -54,6 +54,10 @@
 
       <div class="topbar-user">
         <button id="who" class="who" title="Abmelden"></button>
+        <button id="theme-toggle" class="icon-btn" title="Helles oder dunkles Bild" aria-label="Darstellung wechseln">
+          <span class="theme-sun"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2.5 12h2M19.5 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg></span>
+          <span class="theme-moon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg></span>
+        </button>
         <button id="settings-toggle" class="icon-btn" title="Einstellungen" aria-label="Einstellungen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.1 14.3a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1h-.2a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 1-1.5v-.2a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg></button>
       </div>
     </div>
@@ -85,6 +89,9 @@
           <p>Das ist der Kern. Wähle oben, was du gebucht hattest, und darunter, was du tatsächlich bekommen hast. Die Upgrade-Stufe rechnet sich aus der Reihenfolge der Kategorien.</p>
           <p>Steht der Hinweis, dass die Reihenfolge unsicher ist, ließ sie sich auf der Hotelseite nicht belegen. Klapp dann <em>Zimmerkategorien des Hotels</em> auf und sortier sie mit den Pfeilen. Ab dann gilt sie als geprüft, auch für alle anderen.</p>
 
+          <h4>Zeitraum</h4>
+          <p>Anreise und Abreise sind beide nötig. Wählst du die Anreise, springt die Abreise auf den Folgetag; sobald du sie selbst setzt, bleibt deine Wahl stehen.</p>
+
           <h4>Benefits</h4>
           <p>Angeklickte Benefits werden dunkel. Wo ein Zusatzwert sinnvoll ist, erscheint darunter ein Feld: bei Late Checkout die Uhrzeit, bei F&amp;B Credit der Betrag, bei Welcome Gift die Beschreibung.</p>
 
@@ -107,8 +114,20 @@
           <h4>Ändern und teilen</h4>
           <p>Ein Klick auf einen Aufenthalt öffnet die Detailansicht. Dort kannst du teilen — das erzeugt einen fertigen Textblock für die Gruppe — sowie eigene Einträge bearbeiten und löschen. Fremde Einträge kannst du nur ansehen.</p>
 
+          <h4>Zurück auf Anfang</h4>
+          <p>Ein Klick auf die Wortmarke oben links setzt alle Filter, die Suche und die Gruppierung zurück und bringt dich zur Übersicht.</p>
+
+          <h4>Sortieren und gruppieren</h4>
+          <p>In der Listenansicht sortierst du durch Klick auf eine Spaltenüberschrift, ein zweiter Klick dreht die Richtung um. Auf jeder Karte steht in Gold, wie viele Aufenthalte es für dieses Haus schon gibt — ein Klick darauf führt zur Hotelseite.</p>
+
+          <h4>Helles und dunkles Bild</h4>
+          <p>Neben dem Zahnrad schaltest du zwischen hell und dunkel um. Ohne eigene Wahl folgt stayLOG der Einstellung deines Geräts.</p>
+
           <h4>Auf dem Handy</h4>
-          <p>In Safari über den Teilen-Knopf <em>Zum Home-Bildschirm</em> wählen, dann liegt stayLOG als eigene App auf dem Startbild.</p>
+          <p>In Safari über den Teilen-Knopf <em>Zum Home-Bildschirm</em> wählen, dann liegt stayLOG als eigene App auf dem Startbild. In der Auswertung sind die Programme zugeklappt — antippen öffnet die Einzelheiten.</p>
+
+          <h4>Wenn etwas neu ist</h4>
+          <p>Sobald eine neue Fassung online ist, erscheint oben eine dunkle Leiste mit einem Knopf zum Neuladen. Deine Einträge bleiben dabei erhalten.</p>
         </div>
       </details>
 
@@ -192,6 +211,11 @@
             <div class="view-toggle" role="group" aria-label="Ansicht">
               <button type="button" id="view-cards" class="is-on" title="Kacheln">Kacheln</button>
               <button type="button" id="view-rows" title="Liste">Liste</button>
+            </div>
+
+            <div class="columns-menu" id="columns-menu" hidden>
+              <button type="button" id="columns-open" class="btn btn-quiet">Spalten</button>
+              <div id="columns-list" class="columns-list" hidden></div>
             </div>
           </div>
           <div id="chips" class="chips-active"></div>
@@ -369,6 +393,6 @@
 
 </div>
 
-<script src="/app.js?v=20260906-190301"></script>
+<script src="/app.js?v=20260906-190801"></script>
 </body>
 </html>

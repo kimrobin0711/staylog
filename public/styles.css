@@ -19,8 +19,79 @@
   --r-lg: 16px;
   --tap: 44px;
   --shadow: 0 1px 2px rgba(20, 32, 46, .04), 0 6px 20px rgba(20, 32, 46, .05);
+  --on-status:      #FFFFFF;
+  --gold-ink:       #6E5518;
+  --gold-line:      #EBDFC2;
+  --topbar-bg:      rgba(242, 240, 234, .92);
+  --veil-bg:        rgba(20, 32, 46, .35);
+  --overlay-strong: rgba(20, 32, 46, .72);
+  --drawer-shadow:  rgba(20, 32, 46, .14);
+  --line-on-ink:    rgba(242, 240, 234, .4);
   --topbar-h: 66px;
 }
+
+/* --------------------------------------------------------- Dunkles Bild */
+/* Dieselbe Handschrift, nur nachts: Navy als Grund, Gold bleibt der Akzent. */
+
+:root[data-theme="dark"] {
+  --paper:      #10161F;
+  --card:       #18202B;
+  --card-sunk:  #1F2833;
+  --ink:        #E8E6E0;
+  --ink-mid:    #B4BCC6;
+  --ink-soft:   #8A939E;
+  --line:       #2C3641;
+  --line-soft:  #232C36;
+  --gold:       #D0A344;
+  --gold-lite:  #E4C77A;
+  --gold-wash:  #2A2418;
+  --gold-ink:   #E2C57F;
+  --gold-line:  #46392033;
+  --down:       #D9705A;
+  --ok:         #6FA98A;
+
+  --on-status:      #10161F;
+  --topbar-bg:      rgba(16, 22, 31, .92);
+  --veil-bg:        rgba(0, 0, 0, .55);
+  --overlay-strong: rgba(0, 0, 0, .7);
+  --drawer-shadow:  rgba(0, 0, 0, .45);
+  --line-on-ink:    rgba(232, 230, 224, .35);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 6px 20px rgba(0, 0, 0, .3);
+}
+
+/* Der dunkle Grund schluckt dünne Konturen – Karten brauchen etwas mehr Kante. */
+:root[data-theme="dark"] .stay,
+:root[data-theme="dark"] .form-block,
+:root[data-theme="dark"] .hotel-card,
+:root[data-theme="dark"] .total-card,
+:root[data-theme="dark"] .group-card,
+:root[data-theme="dark"] .filter-pane,
+:root[data-theme="dark"] .gate-inner { border-color: var(--line); }
+
+/* Das Logo ist ein Bild mit dunklem Pin – nachts aufhellen. */
+:root[data-theme="dark"] .brand .mark,
+:root[data-theme="dark"] .gate-logo { filter: invert(1) hue-rotate(180deg) brightness(1.12); }
+
+/* Statusabzeichen bekommen auf dunklem Grund helle Schrift. */
+:root[data-theme="dark"] .badge-status { color: var(--paper); }
+
+/* Der dunkle Knopf muss sich vom dunklen Grund abheben. */
+:root[data-theme="dark"] .btn-solid { background: var(--gold); color: #10161F; border-color: var(--gold); }
+:root[data-theme="dark"] .topnav-btn.is-on { background: var(--card-sunk); }
+:root[data-theme="dark"] .avatar { background: var(--gold); color: #10161F; }
+:root[data-theme="dark"] .update-bar { background: var(--card-sunk); color: var(--ink); }
+:root[data-theme="dark"] .view-toggle button.is-on { background: var(--gold); color: #10161F; }
+:root[data-theme="dark"] .row.is-on { box-shadow: inset 3px 0 0 var(--gold); }
+:root[data-theme="dark"] .keycard .card { fill: var(--gold); }
+:root[data-theme="dark"] .keycard .stripe { fill: #10161F; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] { color-scheme: dark; }
+
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -132,7 +203,7 @@ label { display: block; }
 
 .topbar {
   position: sticky; top: 0; z-index: 30;
-  background: rgba(242, 240, 234, .92);
+  background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
@@ -274,7 +345,7 @@ body { padding-bottom: 0; }
   padding: 4px 10px; border-radius: 999px;
   border: 1px solid var(--line); color: var(--ink-mid); background: var(--card-sunk);
 }
-.badge-status { border-color: transparent; color: #fff; font-weight: 600; }
+.badge-status { border-color: transparent; color: var(--on-status); font-weight: 600; }
 
 /* Gebucht -> Erhalten */
 .flow {
@@ -303,7 +374,7 @@ body { padding-bottom: 0; }
 .stay-benefits { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .pill {
   font-size: .8rem; padding: 4px 11px; border-radius: 999px;
-  background: var(--gold-wash); color: #6E5518; border: 1px solid #EBDFC2;
+  background: var(--gold-wash); color: var(--gold-ink); border: 1px solid var(--gold-line);
 }
 .pill .v { font-weight: 600; }
 
@@ -333,7 +404,7 @@ body { padding-bottom: 0; }
   overflow-y: auto;
   background: var(--card);
   border-left: 1px solid var(--line);
-  box-shadow: -16px 0 40px rgba(20, 32, 46, .14);
+  box-shadow: -16px 0 40px var(--drawer-shadow);
   padding: 20px 26px 40px;
   transform: translateX(100%);
   transition: transform .24s cubic-bezier(.4, 0, .2, 1);
@@ -578,7 +649,7 @@ td.wrap { white-space: normal; }
 
 .veil {
   position: fixed; inset: 0; z-index: 40;
-  background: rgba(20, 32, 46, .35);
+  background: var(--veil-bg);
   opacity: 0; pointer-events: none; transition: opacity .22s ease;
 }
 .veil.is-open { opacity: 1; pointer-events: auto; }
@@ -588,7 +659,7 @@ td.wrap { white-space: normal; }
   width: min(430px, 92vw);
   display: flex; flex-direction: column;
   background: var(--card); border-left: 1px solid var(--line);
-  box-shadow: -14px 0 34px rgba(20, 32, 46, .12);
+  box-shadow: -14px 0 34px var(--drawer-shadow);
   transform: translateX(100%); transition: transform .24s cubic-bezier(.4,0,.2,1);
 }
 .drawer.is-open { transform: translateX(0); }
@@ -627,8 +698,8 @@ td.wrap { white-space: normal; }
 .guest-bar {
   display: flex; align-items: center; justify-content: center; gap: 16px;
   flex-wrap: wrap;
-  background: var(--gold-wash); border-bottom: 1px solid #EBDFC2;
-  color: #6E5518; font-size: .9rem;
+  background: var(--gold-wash); border-bottom: 1px solid var(--gold-line);
+  color: var(--gold-ink); font-size: .9rem;
   padding: 10px 24px;
 }
 body.is-guest .btn-new,
@@ -645,8 +716,8 @@ body.is-guest .drawer-body > .note { display: none; }
 /* ------------------------------------------------- Zimmerkategorien */
 
 .rank-warning {
-  margin-top: 10px; font-size: .85rem; color: #6E5518;
-  background: var(--gold-wash); border: 1px solid #EBDFC2;
+  margin-top: 10px; font-size: .85rem; color: var(--gold-ink);
+  background: var(--gold-wash); border: 1px solid var(--gold-line);
   border-radius: var(--r-sm); padding: 9px 12px;
 }
 .rooms-found { color: var(--ok); font-weight: 600; }
@@ -687,13 +758,13 @@ body.is-guest .drawer-body > .note { display: none; }
 .photo-tools { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; }
 .photo-tools button {
   width: 26px; height: 26px; border: 0; border-radius: 6px; cursor: pointer;
-  background: rgba(20, 32, 46, .72); color: #fff; font-size: .8rem; line-height: 1;
+  background: var(--overlay-strong); color: var(--paper); font-size: .8rem; line-height: 1;
 }
 .photo-tools button:hover { background: var(--ink); }
 
 .edit-banner {
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  background: var(--gold-wash); border: 1px solid #EBDFC2; color: #6E5518;
+  background: var(--gold-wash); border: 1px solid var(--gold-line); color: var(--gold-ink);
   border-radius: var(--r-sm); padding: 10px 14px; margin-bottom: 16px; font-size: .9rem;
 }
 
@@ -743,7 +814,7 @@ body.is-guest .drawer-body > .note { display: none; }
   background: var(--ink); color: var(--paper);
   padding: 10px 24px; font-size: .9rem;
 }
-.update-bar .btn { border-color: rgba(242,240,234,.4); color: var(--paper); background: none; }
+.update-bar .btn { border-color: var(--line-on-ink); color: var(--paper); background: none; }
 .update-bar .btn:hover { border-color: var(--paper); }
 
 /* --------------------------------------------------------- Listenansicht */
@@ -766,7 +837,7 @@ body.is-guest .drawer-body > .note { display: none; }
 .rows { display: block; }
 .row {
   display: grid; align-items: center; gap: 12px;
-  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.1fr) 118px minmax(0, 1.5fr) minmax(0, 2fr) 88px 76px;
+  grid-template-columns: var(--cols);
   width: 100%; text-align: left; cursor: pointer;
   border: 0; border-bottom: 1px solid var(--line-soft); background: none;
   padding: 11px 8px; font-size: .89rem;
@@ -785,7 +856,7 @@ body.is-guest .drawer-body > .note { display: none; }
 .row .r-price { text-align: right; font-variant-numeric: tabular-nums; }
 .rows-head {
   display: grid; gap: 12px;
-  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.1fr) 118px minmax(0, 1.5fr) minmax(0, 2fr) 88px 76px;
+  grid-template-columns: var(--cols);
   padding: 0 8px 7px; border-bottom: 1px solid var(--line);
   font-size: .72rem; letter-spacing: .07em; color: var(--ink-soft);
 }
@@ -793,7 +864,8 @@ body.is-guest .drawer-body > .note { display: none; }
 
 @media (max-width: 900px) {
   .row, .rows-head { grid-template-columns: minmax(0, 1fr) 84px; }
-  .row .r-when, .row .r-badges, .row .r-flow, .row .r-price, .rows-head .hide-s { display: none; }
+  .row > :not(.r-hotel):not(.r-step),
+  .rows-head > :not(:first-child):not(.col-step) { display: none; }
 }
 
 /* ------------------------------------------------------ Hotelseite (voll) */
@@ -1094,3 +1166,27 @@ details.group-card[open] > summary { margin-bottom: 4px; }
   details.group-card > summary::after { display: none; }
   details.group-card > summary { cursor: default; }
 }
+
+/* Umschalter zeigt immer das, was ein Klick bewirkt */
+#theme-toggle .theme-moon { display: none; }
+body.is-dark #theme-toggle .theme-sun { display: none; }
+body.is-dark #theme-toggle .theme-moon { display: inline-flex; }
+#theme-toggle span { display: inline-flex; }
+#theme-toggle svg { width: 19px; height: 19px; }
+
+/* Gleicher Hotelname in Folge wird nur einmal geschrieben */
+.row .r-hotel.is-repeat { color: var(--ink-soft); font-weight: 400; }
+
+/* Spaltenauswahl */
+.columns-menu { position: relative; }
+.columns-list {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 25;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-md); box-shadow: var(--shadow);
+  padding: 12px 14px; min-width: 190px;
+}
+.columns-list label {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 0; font-size: .88rem; cursor: pointer;
+}
+.columns-list input { width: auto; min-height: 0; }

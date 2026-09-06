@@ -8,6 +8,37 @@ const el = (tag, cls, text) => {
   return n;
 };
 
+/* --------------------------------------------------------- Darstellung */
+
+// Drei Zustände: dem Gerät folgen, immer hell, immer dunkel.
+function applyTheme(wahl) {
+  const wurzel = document.documentElement;
+  if (wahl === 'dark' || wahl === 'light') wurzel.dataset.theme = wahl;
+  else delete wurzel.dataset.theme;
+
+  const dunkel = wurzel.dataset.theme === 'dark'
+    || (!wurzel.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  document.querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', dunkel ? '#10161F' : '#F2F0EA');
+  document.body.classList.toggle('is-dark', dunkel);
+}
+
+applyTheme(localStorage.getItem('staylog.theme') || 'auto');
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if ((localStorage.getItem('staylog.theme') || 'auto') === 'auto') applyTheme('auto');
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('theme-toggle')?.addEventListener('click', () => {
+    const jetzt = document.body.classList.contains('is-dark');
+    const neu = jetzt ? 'light' : 'dark';
+    localStorage.setItem('staylog.theme', neu);
+    applyTheme(neu);
+  });
+});
+
 // Die eigene Fassung steht als Version im Skriptpfad.
 const MY_VERSION = (document.currentScript?.src || '').split('v=')[1] || '';
 
@@ -39,6 +70,7 @@ const state = {
   editing: null,
   view: localStorage.getItem('staylog.view') || 'cards',
   sort: { key: 'date', dir: 'desc' },
+  columns: JSON.parse(localStorage.getItem('staylog.columns') || 'null'),
   hotelPage: null,
   contextCache: {},
   imageCache: {},
@@ -276,6 +308,7 @@ async function signIn(pass, login, name) {
   $('#group-by').value = state.groupBy;
   $('#view-cards').classList.toggle('is-on', state.view === 'cards');
   $('#view-rows').classList.toggle('is-on', state.view === 'rows');
+  $('#columns-menu').hidden = state.view !== 'rows';
 
   buildForm();
   loadFilters();
@@ -334,7 +367,21 @@ $('#new-stay').addEventListener('click', () => {
   if (!state.editing && !state.hotel) resetPicker();
   showView('new');
 });
-$('#brand').addEventListener('click', () => showView('stays'));
+// Klick auf die Marke bringt den Ausgangszustand zurück.
+$('#brand').addEventListener('click', () => {
+  for (const id of FILTER_IDS) $(id).value = '';
+  $('#f-upgraded').checked = false;
+  $('#f-text').value = '';
+  state.groupBy = '';
+  $('#group-by').value = '';
+  localStorage.setItem('staylog.group', '');
+
+  closeDetail();
+  refreshPlaceSelects();
+  showView('stays');
+  loadStays();
+  window.scrollTo({ top: 0 });
+});
 
 /* ---------------------------------------------------------- Einstellungen */
 
@@ -631,8 +678,20 @@ function setView(mode) {
   localStorage.setItem('staylog.view', mode);
   $('#view-cards').classList.toggle('is-on', mode === 'cards');
   $('#view-rows').classList.toggle('is-on', mode === 'rows');
+  $('#columns-menu').hidden = mode !== 'rows';
+  $('#columns-list').hidden = true;
   renderStayList();
 }
+
+$('#columns-open').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const box = $('#columns-list');
+  if (box.hidden) buildColumnsMenu();
+  box.hidden = !box.hidden;
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#columns-menu')) $('#columns-list').hidden = true;
+});
 $('#view-cards').addEventListener('click', () => setView('cards'));
 $('#view-rows').addEventListener('click', () => setView('rows'));
 
@@ -757,7 +816,11 @@ function renderBatch(entries) {
   const wrap = document.createDocumentFragment();
   if (state.view === 'rows') {
     wrap.appendChild(rowsHeader());
-    for (const s of entries) wrap.appendChild(renderStayRow(s));
+    let vorher = null;
+    for (const s of entries) {
+      wrap.appendChild(renderStayRow(s, vorher));
+      vorher = s.hotel_id;
+    }
   } else {
     const grid = el('div', 'stay-list');
     for (const s of entries) grid.appendChild(renderStayCard(s));
@@ -766,22 +829,40 @@ function renderBatch(entries) {
   return wrap;
 }
 
-const SORT_KEYS = {
-  hotel: (s) => (s.hotel_name || '').toLowerCase(),
-  city: (s) => (s.city || '').toLowerCase(),
-  date: (s) => s.checkin || '',
-  program: (s) => [s.program, s.status_level].filter(Boolean).join(' ').toLowerCase(),
-  room: (s) => (s.received_room || '').toLowerCase(),
-  step: (s) => (s.upgrade_steps == null ? -99 : s.upgrade_steps),
-  price: (s) => (s.price == null ? -1 : s.price),
-};
+// Spalten der Listenansicht. "breite" geht in das Raster, "sort" in die Sortierung.
+const COLUMNS = [
+  { key: 'hotel',   label: 'Hotel',                 breite: 'minmax(0, 2.2fr)', sort: (s) => (s.hotel_name || '').toLowerCase() },
+  { key: 'city',    label: 'Ort',                   breite: 'minmax(0, 1.1fr)', sort: (s) => (s.city || '').toLowerCase() },
+  { key: 'date',    label: 'Zeitraum',              breite: '118px',            sort: (s) => s.checkin || '' },
+  { key: 'program', label: 'Programm',              breite: 'minmax(0, 1.5fr)', sort: (s) => [s.program, s.status_level].filter(Boolean).join(' ').toLowerCase() },
+  { key: 'rooms',   label: 'Gebucht → Erhalten',    breite: 'minmax(0, 2fr)',   sort: (s) => (s.received_room || '').toLowerCase() },
+  { key: 'step',    label: 'Upgrade',   rechts: true, breite: '88px',           sort: (s) => (s.upgrade_steps == null ? -99 : s.upgrade_steps) },
+  { key: 'price',   label: 'Preis',     rechts: true, breite: '86px',           sort: (s) => (s.price == null ? -1 : s.price) },
+  { key: 'author',  label: 'Person',    aus: true,  breite: 'minmax(0, 1fr)',   sort: (s) => (s.author || '').toLowerCase() },
+  { key: 'nights',  label: 'Nächte',    aus: true, rechts: true, breite: '74px', sort: (s) => (s.nights || 0) },
+];
+
+// Was gerade sichtbar ist. Standard: alles außer den abgewählten.
+function visibleColumns() {
+  const gespeichert = state.columns;
+  const nachGruppe = { city: 'city', hotel: 'hotel', author: 'author' }[state.groupBy];
+
+  return COLUMNS.filter((c) => {
+    if (gespeichert) return gespeichert.includes(c.key);
+    return !c.aus;
+  }).filter((c) => c.key !== nachGruppe);   // die Gruppenspalte wäre nur Wiederholung
+}
+
+function applyColumnWidths(node) {
+  node.style.setProperty('--cols', visibleColumns().map((c) => c.breite).join(' '));
+}
 
 function sortStays(list) {
-  const get = SORT_KEYS[state.sort.key] || SORT_KEYS.date;
+  const spalte = COLUMNS.find((c) => c.key === state.sort.key) || COLUMNS[2];
   const factor = state.sort.dir === 'asc' ? 1 : -1;
   list.sort((a, b) => {
-    const x = get(a);
-    const y = get(b);
+    const x = spalte.sort(a);
+    const y = spalte.sort(b);
     if (x === y) return 0;
     return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * factor;
   });
@@ -789,26 +870,19 @@ function sortStays(list) {
 
 function rowsHeader() {
   const head = el('div', 'rows-head');
-  const columns = [
-    ['HOTEL', 'hotel', ''],
-    ['ORT', 'city', ''],
-    ['ZEITRAUM', 'date', 'hide-s'],
-    ['PROGRAMM', 'program', 'hide-s'],
-    ['GEBUCHT → ERHALTEN', 'room', 'hide-s'],
-    ['UPGRADE', 'step', 'right'],
-    ['PREIS', 'price', 'right hide-s'],
-  ];
-  for (const [text, key, cls] of columns) {
-    const cell = el('span', cls);
-    const button = el('button', state.sort.key === key ? 'sorted' : null);
+  applyColumnWidths(head);
+
+  for (const spalte of visibleColumns()) {
+    const cell = el('span', (spalte.rechts ? 'right ' : '') + 'col-' + spalte.key);
+    const button = el('button', state.sort.key === spalte.key ? 'sorted' : null);
     button.type = 'button';
-    button.appendChild(document.createTextNode(text));
-    if (state.sort.key === key) {
+    button.appendChild(document.createTextNode(spalte.label));
+    if (state.sort.key === spalte.key) {
       button.appendChild(el('span', null, state.sort.dir === 'asc' ? '▲' : '▼'));
     }
     button.addEventListener('click', () => {
-      if (state.sort.key === key) state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
-      else state.sort = { key, dir: key === 'date' || key === 'step' || key === 'price' ? 'desc' : 'asc' };
+      if (state.sort.key === spalte.key) state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
+      else state.sort = { key: spalte.key, dir: ['date', 'step', 'price', 'nights'].includes(spalte.key) ? 'desc' : 'asc' };
       renderStayList();
     });
     cell.appendChild(button);
@@ -817,30 +891,68 @@ function rowsHeader() {
   return head;
 }
 
-function renderStayRow(s) {
+// Menü zur Spaltenwahl
+function buildColumnsMenu() {
+  const box = $('#columns-list');
+  box.innerHTML = '';
+  const aktiv = new Set(visibleColumns().map((c) => c.key));
+
+  for (const spalte of COLUMNS) {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = aktiv.has(spalte.key) || (state.columns || []).includes(spalte.key);
+    input.addEventListener('change', () => {
+      const gewaehlt = state.columns
+        ? [...state.columns]
+        : COLUMNS.filter((c) => !c.aus).map((c) => c.key);
+      const ohne = gewaehlt.filter((k) => k !== spalte.key);
+      state.columns = input.checked ? [...ohne, spalte.key] : ohne;
+      // Reihenfolge wie in COLUMNS beibehalten
+      state.columns = COLUMNS.filter((c) => state.columns.includes(c.key)).map((c) => c.key);
+      localStorage.setItem('staylog.columns', JSON.stringify(state.columns));
+      renderStayList();
+    });
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(spalte.label));
+    box.appendChild(label);
+  }
+}
+
+function renderStayRow(s, vorherigesHotel) {
   const row = el('button', 'row' + (state.selected === s.id ? ' is-on' : ''));
   row.type = 'button';
+  applyColumnWidths(row);
 
-  row.appendChild(el('span', 'r-hotel', s.hotel_name));
-  row.appendChild(el('span', 'r-muted', s.city || ''));
-  row.appendChild(el('span', 'r-when', stayDates(s)));
+  const zellen = {
+    hotel: () => {
+      // Dasselbe Haus in Folge nur einmal ausschreiben.
+      const wiederholt = vorherigesHotel === s.hotel_id;
+      return el('span', 'r-hotel' + (wiederholt ? ' is-repeat' : ''),
+        wiederholt ? '↳' : s.hotel_name);
+    },
+    city: () => el('span', 'r-muted', s.city || ''),
+    date: () => el('span', 'r-when', stayDates(s)),
+    program: () => el('span', 'r-badges r-muted', [s.program, s.status_level].filter(Boolean).join(' · ')),
+    rooms: () => {
+      const flow = el('span', 'r-flow');
+      flow.appendChild(el('span', 'r-muted', s.booked_room || '–'));
+      flow.appendChild(el('span', 'r-arrow', flowArrow(s.upgrade_steps)));
+      flow.appendChild(el('span', null, s.received_room || '–'));
+      return flow;
+    },
+    step: () => {
+      const step = el('span', 'r-step' + (s.upgrade_steps > 0 ? ' up' : s.upgrade_steps < 0 ? ' down' : ''));
+      step.textContent = s.upgrade_steps == null ? '–'
+        : s.upgrade_steps === 0 ? 'keins' : (s.upgrade_steps > 0 ? '+' : '') + s.upgrade_steps;
+      return step;
+    },
+    price: () => el('span', 'r-price', s.price != null ? formatMoney(s.price, s.currency) : ''),
+    author: () => el('span', 'r-muted', s.author || ''),
+    nights: () => el('span', 'r-price', s.nights ? String(s.nights) : ''),
+  };
 
-  const badges = el('span', 'r-badges r-muted');
-  badges.textContent = [s.program, s.status_level].filter(Boolean).join(' · ');
-  row.appendChild(badges);
-
-  const flow = el('span', 'r-flow');
-  flow.appendChild(el('span', 'r-muted', s.booked_room || '–'));
-  flow.appendChild(el('span', 'r-arrow', flowArrow(s.upgrade_steps)));
-  flow.appendChild(el('span', null, s.received_room || '–'));
-  row.appendChild(flow);
-
-  const step = el('span', 'r-step' + (s.upgrade_steps > 0 ? ' up' : s.upgrade_steps < 0 ? ' down' : ''));
-  step.textContent = s.upgrade_steps == null ? '–'
-    : s.upgrade_steps === 0 ? 'keins' : (s.upgrade_steps > 0 ? '+' : '') + s.upgrade_steps;
-  row.appendChild(step);
-
-  row.appendChild(el('span', 'r-price', s.price != null ? formatMoney(s.price, s.currency) : ''));
+  for (const spalte of visibleColumns()) row.appendChild(zellen[spalte.key]());
 
   row.addEventListener('click', () => {
     state.selected = s.id;

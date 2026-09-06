@@ -11,6 +11,7 @@ const el = (tag, cls, text) => {
 const state = {
   pass: localStorage.getItem('staylog.pass') || '',
   me: localStorage.getItem('staylog.name') || '',
+  email: localStorage.getItem('staylog.email') || '',
   country: null,
   city: null,
   hotel: null,
@@ -77,7 +78,7 @@ async function api(path, options = {}) {
     ...options,
     headers: {
       'x-stay-pass': state.pass,
-      'x-stay-name': encodeURIComponent(state.me || ''),
+      'x-stay-user': encodeURIComponent(state.email || state.me || ''),
       ...(options.headers || {}),
     },
   });
@@ -94,13 +95,34 @@ const debounce = (fn, ms = 350) => {
 
 /* -------------------------------------------------------------- Anmeldung */
 
-async function signIn(pass, name) {
+async function signIn(pass, login, name) {
   state.pass = pass;
-  state.me = name;
-  const res = await api('/login', { method: 'POST' });
+  state.email = login;
+
+  const res = await api('/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(name ? { name } : {}),
+  });
+
+  // Erster Besuch: die Anmeldemaske fragt nach dem Namen und ruft nochmal auf.
+  if (res.needsName) {
+    $('#gate-newcomer').hidden = false;
+    $('#gate-name').focus();
+    const err = new Error('Bitte trag noch deinen Namen ein');
+    err.needsName = true;
+    throw err;
+  }
+
   state.me = res.name;
+  state.email = res.email || login;
+  if (res.statuses && Object.keys(res.statuses).length) {
+    state.myStatus = res.statuses;
+    localStorage.setItem('staylog.status', JSON.stringify(state.myStatus));
+  }
   localStorage.setItem('staylog.pass', pass);
   localStorage.setItem('staylog.name', state.me);
+  localStorage.setItem('staylog.email', state.email || '');
   $('#gate').hidden = true;
   $('#app').hidden = false;
   $('#who').textContent = state.me;
@@ -112,31 +134,26 @@ $('#gate-go').addEventListener('click', async () => {
   const err = $('#gate-error');
   err.hidden = true;
   try {
-    await signIn($('#gate-key').value.trim(), $('#gate-name').value.trim());
+    await signIn(
+      $('#gate-key').value.trim(),
+      $('#gate-email').value.trim(),
+      $('#gate-name').value.trim()
+    );
   } catch (e) {
     err.textContent = e.message;
     err.hidden = false;
   }
 });
-for (const id of ['#gate-key', '#gate-name']) {
+for (const id of ['#gate-key', '#gate-email', '#gate-name']) {
   $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#gate-go').click(); });
 }
 
 $('#who').addEventListener('click', () => {
-  const name = prompt('Unter welchem Namen sollen deine Einträge stehen?', state.me);
-  if (name === null) {
-    if (confirm('Abmelden und Passwort auf diesem Gerät vergessen?')) {
-      localStorage.removeItem('staylog.pass');
-      localStorage.removeItem('staylog.name');
-      location.reload();
-    }
-    return;
-  }
-  if (!name.trim()) return;
-  state.me = name.trim();
-  localStorage.setItem('staylog.name', state.me);
-  $('#who').textContent = state.me;
-  loadStays();
+  if (!confirm('Abmelden und Passwort auf diesem Gerät vergessen?')) return;
+  localStorage.removeItem('staylog.pass');
+  localStorage.removeItem('staylog.email');
+  localStorage.removeItem('staylog.name');
+  location.reload();
 });
 
 /* ---------------------------------------------------------- Einstellungen */
@@ -156,6 +173,11 @@ function buildSettings() {
       else delete state.myStatus[program];
       localStorage.setItem('staylog.status', JSON.stringify(state.myStatus));
       syncStatusOptions();
+      api('/me/status', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ statuses: state.myStatus }),
+      }).catch(() => { /* bleibt zumindest im Gerät */ });
     });
     label.appendChild(sel);
     box.appendChild(label);
@@ -996,10 +1018,10 @@ $('#log-open').addEventListener('click', async () => {
 
 /* ------------------------------------------------------------------ Start */
 
-if (state.pass && state.me) {
-  signIn(state.pass, state.me).catch(() => {
+if (state.pass && state.email) {
+  signIn(state.pass, state.email).catch(() => {
     localStorage.removeItem('staylog.pass');
-    $('#gate-name').value = state.me;
+    $('#gate-email').value = state.email || '';
   });
 }
 if ('serviceWorker' in navigator) {

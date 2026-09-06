@@ -1,6 +1,6 @@
 // stayLOG – API. Laeuft als Cloudflare Pages Function unter /api/*
 // Bindings: DB (D1), PHOTOS (R2)
-// Secrets:  STAY_PASSWORD (gemeinsames Passwort), ANTHROPIC_API_KEY
+// Secrets:  STAY_PASSWORD (gemeinsames Passwort), ADMIN_PASSWORD, ANTHROPIC_API_KEY
 
 const UA = 'stayLOG/1.0 (persoenliches Hotel-Aufenthaltsbuch)';
 
@@ -16,21 +16,35 @@ const fail = (message, status = 400) => json({ error: message }, status);
 
 const now = () => new Date().toISOString();
 
-// Ein gemeinsames Passwort oeffnet die Seite. Der Name sagt nur, wer den
-// Eintrag geschrieben hat – er ist keine zweite Huerde.
-function whoami(request, env) {
+// Das gemeinsame Passwort oeffnet die Tuer. Wer zum ersten Mal kommt, legt sich
+// mit Adresse und Namen selbst an – danach ist die Adresse die feste Kennung.
+
+function passwordOk(request, env) {
   const pass = (request.headers.get('x-stay-pass') || '').trim();
   const expected = (env.STAY_PASSWORD || '').trim();
-  if (!expected || pass !== expected) return null;
+  return Boolean(expected) && pass === expected;
+}
 
-  let name = '';
+function loginEmail(request) {
   try {
-    name = decodeURIComponent(request.headers.get('x-stay-name') || '');
+    const raw = decodeURIComponent(request.headers.get('x-stay-user') || '');
+    return raw.trim().toLowerCase().slice(0, 120);
   } catch {
-    return null;
+    return '';
   }
-  name = name.trim().slice(0, 40);
-  return name || null;
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+// Gibt das Mitglied zurueck, oder null wenn Passwort, Adresse oder Konto fehlen.
+async function whoami(request, env) {
+  if (!passwordOk(request, env)) return null;
+  const email = loginEmail(request);
+  if (!email || !EMAIL_RE.test(email)) return null;
+
+  const row = await env.DB.prepare('SELECT email, name, statuses FROM members WHERE email = ?')
+    .bind(email).first();
+  return row || null;
 }
 
 /* ----------------------------------------------------------- Protokoll */
@@ -519,21 +533,48 @@ export async function onRequest(context) {
     return json(report);
   }
 
-  const user = whoami(request, env);
+  const user = await whoami(request, env);
 
   if (path === '/login' && method === 'POST') {
     if (await tooManyFailures(env, request)) {
       await logEvent(env, request, 'login_blocked', null, null);
       return fail('Zu viele Fehlversuche. Versuch es in einer Viertelstunde erneut.', 429);
     }
-    if (user) {
-      waitUntil(logEvent(env, request, 'login_ok', user, null));
-      if (Math.random() < 0.1) waitUntil(prune(env));
-      return json({ name: user });
+
+    if (!passwordOk(request, env)) {
+      await logEvent(env, request, 'login_fail', null, 'falsches Passwort');
+      return fail('Das Passwort stimmt nicht', 401);
     }
-    const hasName = (request.headers.get('x-stay-name') || '').trim().length > 0;
-    await logEvent(env, request, 'login_fail', null, hasName ? 'falsches Passwort' : 'Name fehlt');
-    return fail(hasName ? 'Das Passwort stimmt nicht' : 'Trag deinen Namen ein', 401);
+
+    const email = loginEmail(request);
+    if (!email || !EMAIL_RE.test(email)) return fail('Trag deine E-Mail-Adresse ein', 400);
+
+    if (user) {
+      waitUntil(logEvent(env, request, 'login_ok', user.name, email));
+      if (Math.random() < 0.1) waitUntil(prune(env));
+      let statuses = {};
+      try { statuses = JSON.parse(user.statuses || '{}'); } catch { /* leer lassen */ }
+      return json({ name: user.name, email: user.email, statuses });
+    }
+
+    // Erster Besuch: Name anlegen.
+    let body = {};
+    try { body = await request.json(); } catch { /* kein Rumpf */ }
+    const name = String(body.name || '').trim().slice(0, 40);
+
+    if (!name) return json({ needsName: true }, 200);
+    if (name.length < 2) return fail('Der Name ist zu kurz', 400);
+
+    const taken = await env.DB.prepare('SELECT email FROM members WHERE name = ?').bind(name).first();
+    if (taken) return fail('Diesen Namen nutzt schon jemand. Nimm einen anderen.', 409);
+
+    const stamp = now();
+    await env.DB.prepare(
+      'INSERT INTO members (email, name, statuses, created_at, updated_at) VALUES (?,?,?,?,?)'
+    ).bind(email, name, '{}', stamp, stamp).run();
+
+    waitUntil(logEvent(env, request, 'member_create', name, email));
+    return json({ name, email, statuses: {}, created: true });
   }
 
   if (!user) return fail('Bitte anmelden', 401);
@@ -604,7 +645,7 @@ export async function onRequest(context) {
           b.lat ?? null, b.lon ?? null, now()
         ).run();
         hotelId = res.meta.last_row_id;
-        waitUntil(logEvent(env, request, 'hotel_create', user, b.name));
+        waitUntil(logEvent(env, request, 'hotel_create', user.name, b.name));
         waitUntil(runEnrichment(env, hotelId));
       }
 
@@ -733,14 +774,14 @@ export async function onRequest(context) {
                             price, currency, benefits, notes, created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
-        b.hotel_id, user, b.program || null, b.status_level || null,
+        b.hotel_id, user.name, b.program || null, b.status_level || null,
         b.checkin || null, b.checkout || null, nightsBetween(b.checkin, b.checkout),
         b.booked_room || null, bookedRank, b.received_room || null, receivedRank, steps,
         b.price != null && b.price !== '' ? Number(b.price) : null, b.currency || 'EUR',
         JSON.stringify(b.benefits || []), b.notes || null, now()
       ).run();
 
-      waitUntil(logEvent(env, request, 'stay_create', user, 'Hotel ' + b.hotel_id));
+      waitUntil(logEvent(env, request, 'stay_create', user.name, 'Hotel ' + b.hotel_id));
       return json({ id: res.meta.last_row_id });
     }
 
@@ -749,7 +790,7 @@ export async function onRequest(context) {
       const id = Number(stayMatch[1]);
       const stay = await env.DB.prepare('SELECT * FROM stays WHERE id = ?').bind(id).first();
       if (!stay) return fail('Aufenthalt nicht gefunden', 404);
-      if (stay.author !== user) return fail('Das ist nicht dein Eintrag', 403);
+      if (stay.author !== user.name) return fail('Das ist nicht dein Eintrag', 403);
 
       const photos = await env.DB.prepare('SELECT key FROM photos WHERE stay_id = ?').bind(id).all();
       for (const p of photos.results) await env.PHOTOS.delete(p.key);
@@ -757,7 +798,7 @@ export async function onRequest(context) {
         env.DB.prepare('DELETE FROM photos WHERE stay_id = ?').bind(id),
         env.DB.prepare('DELETE FROM stays WHERE id = ?').bind(id),
       ]);
-      waitUntil(logEvent(env, request, 'stay_delete', user, 'Aufenthalt ' + id));
+      waitUntil(logEvent(env, request, 'stay_delete', user.name, 'Aufenthalt ' + id));
       return json({ deleted: id });
     }
 
@@ -773,7 +814,7 @@ export async function onRequest(context) {
       await env.PHOTOS.put(key, request.body, { httpMetadata: { contentType: type } });
       await env.DB.prepare('INSERT INTO photos (stay_id, key, caption, created_at) VALUES (?,?,?,?)')
         .bind(stayId, key, caption, now()).run();
-      waitUntil(logEvent(env, request, 'photo_upload', user, 'Aufenthalt ' + stayId));
+      waitUntil(logEvent(env, request, 'photo_upload', user.name, 'Aufenthalt ' + stayId));
       return json({ key });
     }
 
@@ -812,7 +853,7 @@ export async function onRequest(context) {
       const admin = env.ADMIN_PASSWORD || '';
       if (!admin) return fail('Fuer das Protokoll ist kein ADMIN_PASSWORD gesetzt', 403);
       if ((request.headers.get('x-stay-admin') || '') !== admin) {
-        await logEvent(env, request, 'login_fail', user, 'Protokoll: falsches Adminpasswort');
+        await logEvent(env, request, 'login_fail', user.name, 'Protokoll: falsches Adminpasswort');
         return fail('Das Adminpasswort stimmt nicht', 403);
       }
       const rows = await env.DB.prepare(
@@ -821,9 +862,16 @@ export async function onRequest(context) {
       return json({ days: LOG_DAYS, entries: rows.results });
     }
 
+    if (path === '/me/status' && method === 'PUT') {
+      const body = await request.json();
+      await env.DB.prepare('UPDATE members SET statuses = ?, updated_at = ? WHERE email = ?')
+        .bind(JSON.stringify(body.statuses || {}), now(), user.email).run();
+      return json({ gespeichert: true });
+    }
+
     if (path === '/people' && method === 'GET') {
-      const rows = await env.DB.prepare('SELECT DISTINCT author FROM stays ORDER BY author').all();
-      return json(rows.results.map((r) => r.author));
+      const rows = await env.DB.prepare('SELECT name FROM members ORDER BY name').all();
+      return json(rows.results.map((r) => r.name));
     }
 
     return fail('Diesen Weg gibt es nicht: ' + path, 404);

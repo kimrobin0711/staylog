@@ -18,8 +18,12 @@
   <div class="gate-inner">
     <h1 class="wordmark">stay<span>LOG</span></h1>
     <p class="gate-text">Was der Status wirklich gebracht hat.</p>
-    <input id="gate-name" type="text" placeholder="Dein Name" autocomplete="nickname">
+    <input id="gate-email" type="email" placeholder="E-Mail-Adresse" autocomplete="username" inputmode="email">
     <input id="gate-key" type="password" placeholder="Passwort" autocomplete="current-password">
+    <div id="gate-newcomer" hidden>
+      <p class="gate-hint">Du bist zum ersten Mal hier. Unter welchem Namen sollen deine Einträge stehen?</p>
+      <input id="gate-name" type="text" placeholder="Dein Name" autocomplete="nickname">
+    </div>
     <button id="gate-go" class="btn btn-solid">Anmelden</button>
     <p id="gate-error" class="gate-error" hidden></p>
   </div>
@@ -37,7 +41,7 @@
 
   <section id="settings" class="settings" hidden>
     <h2>Deine Statuslevel</h2>
-    <p class="settings-note">Einmal gepflegt, wird der passende Status beim Eintragen automatisch gesetzt. Gilt nur auf diesem Gerät.</p>
+    <p class="settings-note">Einmal gepflegt, wird der passende Status beim Eintragen automatisch gesetzt. Hängt an deiner Adresse, gilt also auf allen Geräten.</p>
     <div id="status-settings" class="status-settings"></div>
   </section>
 

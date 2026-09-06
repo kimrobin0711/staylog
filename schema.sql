@@ -91,6 +91,17 @@ CREATE TABLE IF NOT EXISTS access_log (
   detail     TEXT
 );
 
+-- Mitglieder. Legen sich beim ersten Anmelden selbst an.
+CREATE TABLE IF NOT EXISTS members (
+  email      TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  statuses   TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS members_name_idx ON members(name);
+
 CREATE INDEX IF NOT EXISTS access_log_ts_idx ON access_log(ts);
 CREATE INDEX IF NOT EXISTS access_log_ip_idx ON access_log(ip, event, ts);
 

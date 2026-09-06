@@ -1071,3 +1071,7 @@ body.is-guest .drawer-body > .note { display: none; }
   font: inherit; font-size: .82rem; color: var(--gold);
 }
 .stay-more:hover { text-decoration: underline; }
+
+#rooms-wait-slot { margin-top: 14px; }
+#rooms-wait-slot .rooms-wait { padding: 4px 0 12px; }
+#rooms-wait-slot .btn { margin-top: 2px; }

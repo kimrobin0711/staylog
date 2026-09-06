@@ -1972,29 +1972,31 @@ function renderRooms() {
   adder.hidden = busy;
   refresh.hidden = busy;
 
+  const waitSlot = $('#rooms-wait-slot');
+  waitSlot.innerHTML = '';
+
   if (busy) {
     const seconds = state.pollStarted ? Math.round((Date.now() - state.pollStarted) / 1000) : 0;
     status.textContent = state.pollGaveUp ? 'abgebrochen' : 'läuft …';
 
+    // Die Animation steht sichtbar im Zimmerblock, nicht im zugeklappten Bereich.
     const wait = el('div', 'rooms-wait');
     if (!state.pollGaveUp) wait.appendChild(keycardAnimation());
-    const texts = el('div');
 
+    const texts = el('div');
     if (state.pollGaveUp) {
-      texts.appendChild(el('div', null, 'Die Recherche antwortet nicht mehr.'));
+      texts.appendChild(el('div', 'rooms-step', 'Die Recherche antwortet nicht mehr.'));
       texts.appendChild(el('div', 'rooms-wait-note',
         'Trag die Kategorien unten selbst ein oder versuch es später noch einmal.'));
     } else {
-      const line = el('div', 'rooms-step');
-      line.textContent = waitingLine(seconds);
-      texts.appendChild(line);
+      texts.appendChild(el('div', 'rooms-step', waitingLine(seconds)));
       texts.appendChild(el('div', 'rooms-wait-note',
         seconds > 45
           ? 'Dauert bei diesem Haus länger als üblich (' + seconds + ' Sekunden). Du kannst jederzeit selbst eintragen.'
           : 'Das kann einen Moment dauern. Du kannst den Rest schon ausfüllen.'));
     }
     wait.appendChild(texts);
-    list.appendChild(wait);
+    waitSlot.appendChild(wait);
 
     const skip = el('button', 'btn btn-quiet', 'nicht warten, selbst eintragen');
     skip.type = 'button';
@@ -2004,9 +2006,8 @@ function renderRooms() {
       clearInterval(state.pollTimer);
       renderRooms();
     });
-    list.appendChild(skip);
+    waitSlot.appendChild(skip);
 
-    // Die Auswahlfelder bleiben gesperrt, aber der Grund steht jetzt drin.
     fillRoomSelects([], state.pollGaveUp ? 'Recherche abgebrochen' : 'wird recherchiert …');
     return;
   }

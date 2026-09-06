@@ -1,0 +1,26 @@
+name = "staylog"
+pages_build_output_dir = "public"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "staylog"
+database_id = "484f9a78-afbb-40fb-882d-7f013525da1b"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "staylog-photos"
+
+[vars]
+# Modell und Werkzeugversion lassen sich hier ohne Codeaenderung tauschen.
+ANTHROPIC_MODEL = "claude-sonnet-4-6"
+WEB_SEARCH_TOOL = "web_search_20250305"
+
+# Geheimnisse NICHT hier eintragen, sondern setzen mit:
+#   npx wrangler pages secret put ANTHROPIC_API_KEY
+#   npx wrangler pages secret put STAY_PASSWORD
+#   npx wrangler pages secret put ADMIN_PASSWORD
+#
+# STAY_PASSWORD ist ein gemeinsames Passwort fuer die ganze Runde.
+# ADMIN_PASSWORD oeffnet zusaetzlich das Zugriffsprotokoll und gehoert nur dir.

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>stayLOG</title>
+<meta name="theme-color" content="#E9E7E0">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<!-- Anmeldung -->
+<section id="gate" class="gate">
+  <div class="gate-inner">
+    <h1 class="wordmark">stay<span>LOG</span></h1>
+    <p class="gate-text">Was der Status wirklich gebracht hat.</p>
+    <input id="gate-name" type="text" placeholder="Dein Name" autocomplete="nickname">
+    <input id="gate-key" type="password" placeholder="Passwort" autocomplete="current-password">
+    <button id="gate-go" class="btn btn-solid">Anmelden</button>
+    <p id="gate-error" class="gate-error" hidden></p>
+  </div>
+</section>
+
+<div id="app" hidden>
+
+  <header class="topbar">
+    <h1 class="wordmark small">stay<span>LOG</span></h1>
+    <button id="who" class="who" title="Namen ändern oder abmelden"></button>
+  </header>
+
+  <!-- Aufenthalte -->
+  <main id="view-stays" class="view">
+    <div class="filters" id="filters">
+      <select id="f-program"><option value="">Alle Programme</option></select>
+      <select id="f-author"><option value="">Alle Personen</option></select>
+      <select id="f-country"><option value="">Alle Länder</option></select>
+      <label class="check-inline"><input type="checkbox" id="f-upgraded"> nur mit Upgrade</label>
+    </div>
+    <div id="stay-list" class="stay-list"></div>
+  </main>
+
+  <!-- Eintragen -->
+  <main id="view-new" class="view" hidden>
+
+    <ol class="steps" id="picker">
+      <li class="step" data-step="country">
+        <h2>Land</h2>
+        <input id="p-country" list="country-list" placeholder="Land eingeben" autocomplete="off">
+        <datalist id="country-list"></datalist>
+      </li>
+
+      <li class="step" data-step="city" hidden>
+        <h2>Stadt</h2>
+        <input id="p-city" placeholder="Stadt eingeben" autocomplete="off">
+        <div id="city-results" class="options"></div>
+      </li>
+
+      <li class="step" data-step="hotel" hidden>
+        <h2>Hotel</h2>
+        <input id="p-hotel" placeholder="Nach Name filtern" autocomplete="off">
+        <div id="hotel-results" class="options"></div>
+        <button id="hotel-manual" class="btn btn-quiet">Hotel ist nicht dabei – von Hand eintragen</button>
+      </li>
+    </ol>
+
+    <form id="stay-form" hidden>
+      <div class="chosen">
+        <div>
+          <strong id="chosen-name"></strong>
+          <span id="chosen-place" class="muted"></span>
+        </div>
+        <button type="button" id="chosen-reset" class="btn btn-quiet">ändern</button>
+      </div>
+
+      <div id="rooms-box" class="rooms-box">
+        <div class="rooms-head">
+          <h3>Zimmerkategorien</h3>
+          <span id="rooms-status" class="rooms-status"></span>
+        </div>
+        <div id="rooms-list" class="rooms-list"></div>
+        <div class="rooms-add">
+          <input id="room-new" placeholder="Kategorie ergänzen">
+          <button type="button" id="room-add" class="btn btn-quiet">hinzufügen</button>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <label>Programm
+          <select id="s-program"></select>
+        </label>
+        <label>Dein Status
+          <select id="s-status"></select>
+        </label>
+        <label>Anreise
+          <input type="date" id="s-checkin" required>
+        </label>
+        <label>Abreise
+          <input type="date" id="s-checkout">
+        </label>
+        <label>Gebuchte Kategorie
+          <select id="s-booked"></select>
+        </label>
+        <label>Erhaltene Kategorie
+          <select id="s-received"></select>
+        </label>
+        <label>Preis gesamt
+          <input type="number" id="s-price" step="0.01" inputmode="decimal" placeholder="z.&nbsp;B. 420">
+        </label>
+        <label>Währung
+          <select id="s-currency">
+            <option>EUR</option><option>CHF</option><option>USD</option>
+            <option>GBP</option><option>THB</option><option>AED</option><option>JPY</option>
+          </select>
+        </label>
+      </div>
+
+      <fieldset class="benefits">
+        <legend>Was gab es dazu</legend>
+        <div id="benefit-list" class="chips"></div>
+      </fieldset>
+
+      <label class="block">Was solltest du der Gruppe noch erzählen
+        <textarea id="s-notes" rows="4" placeholder="Wie lief das Einchecken, was wurde angeboten, was war der Haken"></textarea>
+      </label>
+
+      <label class="block">Bilder
+        <input type="file" id="s-photos" accept="image/*" multiple>
+      </label>
+      <div id="photo-previews" class="photo-previews"></div>
+
+      <button type="submit" class="btn btn-solid wide">Aufenthalt eintragen</button>
+      <p id="form-error" class="form-error" hidden></p>
+    </form>
+  </main>
+
+  <!-- Auswertung -->
+  <main id="view-stats" class="view" hidden>
+    <div id="stats-body"></div>
+    <section class="log-section">
+      <button id="log-open" class="btn btn-quiet">Zugriffsprotokoll ansehen</button>
+      <div id="log-body"></div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-view="stays" class="tab is-on">Aufenthalte</button>
+    <button data-view="new" class="tab">Eintragen</button>
+    <button data-view="stats" class="tab">Auswertung</button>
+  </nav>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

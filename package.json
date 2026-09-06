@@ -1,0 +1,10 @@
+{
+  "name": "staylog",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "wrangler pages dev public",
+    "deploy": "wrangler pages deploy public",
+    "db:init": "wrangler d1 execute staylog --remote --file=./schema.sql"
+  }
+}

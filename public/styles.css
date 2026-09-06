@@ -1,0 +1,310 @@
+:root {
+  --paper:      #E9E7E0;
+  --paper-deep: #DFDCD3;
+  --card:       #F5F3EE;
+  --ink:        #1A2531;
+  --ink-soft:   #5D6874;
+  --line:       #CFC9BC;
+  --brass:      #9C7A24;
+  --brass-lite: #C9A93F;
+  --down:       #A4462F;
+  --radius:     10px;
+  --tap:        44px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Familjen Grotesk', 'Segoe UI', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+
+body { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+.muted { color: var(--ink-soft); }
+
+/* ---------------------------------------------------------- Wortmarke */
+
+.wordmark {
+  font-size: 2.6rem;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+.wordmark span {
+  color: var(--brass);
+  font-style: italic;
+  font-weight: 500;
+}
+.wordmark.small { font-size: 1.35rem; }
+
+/* ---------------------------------------------------------- Anmeldung */
+
+.gate {
+  position: fixed; inset: 0;
+  display: grid; place-items: center;
+  background: var(--paper);
+  padding: 24px;
+  z-index: 50;
+}
+.gate-inner { width: min(340px, 100%); }
+.gate-text { color: var(--ink-soft); margin: 8px 0 28px; }
+.gate-error { color: var(--down); margin-top: 12px; }
+
+/* ------------------------------------------------------------ Gerüst */
+
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 12px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+.who {
+  color: var(--ink-soft); font-size: 0.9rem;
+  border: 0; background: none; padding: 4px 2px; cursor: pointer;
+  text-decoration: underline; text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+}
+
+.gate-inner input + input { margin-top: 10px; }
+
+.view { padding: 18px; max-width: 720px; margin: 0 auto; }
+
+.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  background: var(--paper);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tab {
+  min-height: var(--tap);
+  border: 0; background: none;
+  font: inherit; font-size: 0.95rem;
+  color: var(--ink-soft);
+  padding: 14px 4px;
+  cursor: pointer;
+}
+.tab.is-on { color: var(--ink); font-weight: 600; box-shadow: inset 0 2px 0 var(--brass); }
+
+/* --------------------------------------------------- Formularelemente */
+
+input, select, textarea, button { font: inherit; color: inherit; }
+
+input[type=text], input[type=password], input[type=number], input[type=date],
+input:not([type]), select, textarea {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  appearance: none;
+}
+textarea { min-height: 96px; resize: vertical; }
+
+input:focus-visible, select:focus-visible, textarea:focus-visible,
+button:focus-visible, .option:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+label.block, .grid2 label { display: block; }
+.grid2 label, label.block { font-size: 0.9rem; color: var(--ink-soft); margin-bottom: 14px; }
+.grid2 label input, .grid2 label select, label.block textarea, label.block input {
+  margin-top: 5px; color: var(--ink); font-size: 1rem;
+}
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+@media (max-width: 420px) { .grid2 { grid-template-columns: 1fr; } }
+
+.btn {
+  min-height: var(--tap);
+  padding: 11px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--ink);
+  background: none;
+  cursor: pointer;
+}
+.btn-solid { background: var(--ink); color: var(--paper); font-weight: 600; }
+.btn-quiet { border-color: var(--line); color: var(--ink-soft); padding: 8px 12px; min-height: 36px; }
+.wide { width: 100%; margin-top: 8px; }
+.gate .btn { width: 100%; margin-top: 12px; }
+
+.check-inline { display: inline-flex; align-items: center; gap: 7px; font-size: 0.9rem; }
+.check-inline input { width: auto; min-height: 0; }
+
+.form-error { color: var(--down); }
+
+/* ------------------------------------------------------------ Filter */
+
+.filters {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-bottom: 18px;
+}
+.filters select { width: auto; flex: 1 1 140px; min-height: 38px; padding: 6px 10px; font-size: 0.9rem; }
+
+/* -------------------------------------------------- Auswahl in Stufen */
+
+.steps { list-style: none; margin: 0 0 20px; padding: 0; }
+.step { margin-bottom: 18px; }
+.step h2 { font-size: 0.9rem; color: var(--ink-soft); font-weight: 500; margin-bottom: 6px; }
+
+.options { margin-top: 8px; display: flex; flex-direction: column; }
+.option {
+  text-align: left;
+  border: 0; border-bottom: 1px solid var(--line);
+  background: none; cursor: pointer;
+  padding: 11px 2px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+}
+.option:last-child { border-bottom: 0; }
+.option small { color: var(--ink-soft); flex: none; }
+.options-empty { color: var(--ink-soft); padding: 10px 2px; }
+
+.chosen {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 12px 14px; margin-bottom: 18px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.chosen span { display: block; font-size: 0.88rem; }
+
+/* ------------------------------------------------- Zimmerkategorien */
+
+.rooms-box {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; margin-bottom: 20px; background: var(--card);
+}
+.rooms-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.rooms-head h3 { font-size: 1rem; }
+.rooms-status { font-size: 0.82rem; color: var(--ink-soft); }
+.rooms-list { margin: 10px 0 0; }
+.room-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--line);
+}
+.room-row:last-child { border-bottom: 0; }
+.room-row input[type=checkbox] { width: auto; min-height: 0; flex: none; }
+.room-row .rank {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft); font-size: 0.8rem; flex: none;
+  width: 1.6em; text-align: right;
+}
+.room-row .name { flex: 1; }
+.room-row.is-suggested .name { color: var(--ink-soft); }
+.room-row a { color: var(--brass); font-size: 0.78rem; flex: none; }
+.rooms-add { display: flex; gap: 8px; margin-top: 12px; }
+.rooms-add input { flex: 1; min-height: 38px; }
+
+/* -------------------------------------------------------- Zusatzleistungen */
+
+.benefits { border: 0; padding: 0; margin: 0 0 18px; }
+.benefits legend { font-size: 0.9rem; color: var(--ink-soft); padding: 0; margin-bottom: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+  display: inline-flex; align-items: center;
+  padding: 8px 13px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--card); cursor: pointer; font-size: 0.9rem;
+}
+.chip input { position: absolute; opacity: 0; pointer-events: none; }
+.chip:has(input:checked) { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+/* ------------------------------------------------ Aufenthalt als Karte */
+
+.stay-list { display: flex; flex-direction: column; gap: 14px; }
+
+.stay {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--program, var(--line));
+  border-radius: var(--radius);
+  padding: 15px 16px;
+}
+.stay-top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.stay-hotel { font-weight: 600; }
+.stay-place { color: var(--ink-soft); font-size: 0.88rem; }
+.stay-meta {
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
+  color: var(--ink-soft); font-size: 0.85rem;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Die Leiter: das eigentliche Herzstueck der Karte. */
+.ladder { margin: 14px 0 4px; }
+.ladder-rungs { display: flex; align-items: flex-end; gap: 4px; height: 30px; }
+.rung {
+  flex: 1;
+  background: var(--paper-deep);
+  border-radius: 2px;
+  min-width: 8px;
+}
+.rung.is-booked { background: var(--ink-soft); }
+.rung.is-range  { background: var(--brass-lite); }
+.rung.is-got    { background: var(--brass); }
+.rung.is-down   { background: var(--down); }
+.ladder-legend {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 0.85rem; margin-top: 7px;
+}
+.ladder-legend .got { font-weight: 600; }
+.ladder-verdict { color: var(--brass); font-weight: 600; }
+.ladder-verdict.none { color: var(--ink-soft); font-weight: 400; }
+.ladder-verdict.down { color: var(--down); }
+
+.stay-benefits { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; }
+.tag {
+  font-size: 0.8rem; padding: 3px 9px;
+  border: 1px solid var(--line); border-radius: 999px; color: var(--ink-soft);
+}
+.stay-notes { margin: 11px 0 0; }
+.stay-photos { display: flex; gap: 7px; overflow-x: auto; margin-top: 12px; padding-bottom: 3px; }
+.stay-photos figure { margin: 0; flex: none; width: 132px; }
+.stay-photos img { width: 132px; height: 96px; object-fit: cover; border-radius: 7px; display: block; }
+.stay-photos figcaption { font-size: 0.76rem; color: var(--ink-soft); margin-top: 4px; }
+
+.stay-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 10px; }
+.stay-author { font-size: 0.85rem; color: var(--ink-soft); }
+.stay-actions { display: flex; gap: 8px; }
+
+.photo-previews { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.photo-preview { width: 140px; }
+.photo-preview img { width: 140px; height: 100px; object-fit: cover; border-radius: 7px; display: block; }
+.photo-preview input { margin-top: 5px; min-height: 34px; font-size: 0.85rem; }
+
+/* ------------------------------------------------------- Auswertung */
+
+.stat-block { margin-bottom: 26px; }
+.stat-block h2 { font-size: 1.05rem; margin-bottom: 10px; }
+.totals { display: flex; flex-wrap: wrap; gap: 22px; margin-bottom: 26px; }
+.total-num { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.total-label { font-size: 0.85rem; color: var(--ink-soft); }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+th { font-weight: 500; color: var(--ink-soft); font-size: 0.85rem; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.empty { color: var(--ink-soft); padding: 30px 0; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .rung { transition: background-color .18s ease; }
+}
+
+/* ------------------------------------------------------- Protokoll */
+
+.log-section { margin-top: 34px; padding-top: 18px; border-top: 1px solid var(--line); }
+.log-note { color: var(--ink-soft); font-size: 0.85rem; margin: 12px 0; }
+.log-table { font-size: 0.85rem; }
+.log-table td { white-space: nowrap; }
+.log-table td.wrap { white-space: normal; }
+.log-scroll { overflow-x: auto; }
+.ev { font-weight: 600; }
+.ev-fail, .ev-blocked { color: var(--down); }

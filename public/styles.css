@@ -859,9 +859,20 @@ body.is-guest .drawer-body > .note { display: none; }
 .rows-head .right { text-align: right; }
 
 @media (max-width: 900px) {
+  /* Hotel und Upgrade in einer Zeile, die übrigen gewählten Spalten darunter. */
   .row, .rows-head { grid-template-columns: minmax(0, 1fr) 84px; }
-  .row > :not(.r-hotel):not(.r-step),
   .rows-head > :not(:first-child):not(.col-step) { display: none; }
+
+  .row { gap: 3px 12px; padding: 13px 8px; align-items: start; }
+  .row .r-hotel { grid-column: 1; grid-row: 1; }
+  .row .r-step { grid-column: 2; grid-row: 1; }
+  .row > :not(.r-hotel):not(.r-step) {
+    grid-column: 1 / -1;
+    font-size: .82rem; color: var(--ink-soft);
+  }
+  .row .r-flow { white-space: normal; }
+  .row .r-flow span { white-space: normal; overflow: visible; }
+  .row .r-price, .row .r-when { text-align: left; }
 }
 
 /* ------------------------------------------------------ Hotelseite (voll) */

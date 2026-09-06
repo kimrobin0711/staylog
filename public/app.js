@@ -962,7 +962,12 @@ function renderStayRow(s, vorherigesHotel) {
     nights: () => el('span', 'r-price', s.nights ? String(s.nights) : ''),
   };
 
-  for (const spalte of visibleColumns()) row.appendChild(zellen[spalte.key]());
+  for (const spalte of visibleColumns()) {
+    const zelle = zellen[spalte.key]();
+    // Leere Nebenzellen würden auf dem Handy eine leere Zeile erzeugen.
+    if (!zelle.textContent.trim() && !['hotel', 'step'].includes(spalte.key)) continue;
+    row.appendChild(zelle);
+  }
 
   row.addEventListener('click', () => {
     state.selected = s.id;

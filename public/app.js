@@ -32,6 +32,8 @@ const state = {
   guest: false,
   mode: '',
   editing: null,
+  view: localStorage.getItem('staylog.view') || 'cards',
+  groupBy: localStorage.getItem('staylog.group') || '',
   pollStarted: null,
   pollGaveUp: false,
 };
@@ -213,6 +215,10 @@ async function signIn(pass, login, name) {
       ? 'Offener Betrieb – jeder kann eintragen. Deine Einträge stehen unter „Gast“.'
       : 'Gastansicht – du kannst alles ansehen, aber nichts eintragen.';
   }
+
+  $('#group-by').value = state.groupBy;
+  $('#view-cards').classList.toggle('is-on', state.view === 'cards');
+  $('#view-rows').classList.toggle('is-on', state.view === 'rows');
 
   buildForm();
   loadFilters();
@@ -492,6 +498,22 @@ for (const id of FILTER_IDS) {
 $('#f-upgraded').addEventListener('change', loadStays);
 $('#f-text').addEventListener('input', debounce(() => renderStayList(), 200));
 
+function setView(mode) {
+  state.view = mode;
+  localStorage.setItem('staylog.view', mode);
+  $('#view-cards').classList.toggle('is-on', mode === 'cards');
+  $('#view-rows').classList.toggle('is-on', mode === 'rows');
+  renderStayList();
+}
+$('#view-cards').addEventListener('click', () => setView('cards'));
+$('#view-rows').addEventListener('click', () => setView('rows'));
+
+$('#group-by').addEventListener('change', () => {
+  state.groupBy = $('#group-by').value;
+  localStorage.setItem('staylog.group', state.groupBy);
+  renderStayList();
+});
+
 function openFilters() {
   $('#filter-pane').classList.add('is-open');
   $('#filter-veil').classList.add('is-open');
@@ -552,40 +574,107 @@ function renderStayList() {
   $('#stay-count').textContent = list.length + (list.length === 1 ? ' Aufenthalt' : ' Aufenthalte');
 
   box.innerHTML = '';
+  box.className = state.view === 'rows' ? 'rows' : 'stay-list';
+
   if (!list.length) {
     box.appendChild(el('p', 'empty', state.stays.length
       ? 'Kein Aufenthalt passt zu diesen Filtern.'
       : 'Noch nichts eingetragen. Fang mit deinem letzten Aufenthalt an.'));
     return;
   }
-  for (const s of list) box.appendChild(renderStayCard(s));
+
+  if (!state.groupBy) {
+    box.appendChild(renderBatch(list));
+    return;
+  }
+
+  for (const [label, entries] of groupStays(list)) {
+    const head = el('div', 'group-head');
+    head.appendChild(el('h3', null, label));
+    head.appendChild(el('span', 'n', entries.length + (entries.length === 1 ? ' Aufenthalt' : ' Aufenthalte')));
+    box.appendChild(head);
+    box.appendChild(renderBatch(entries));
+  }
 }
 
-// Passende Hotels als eigener Vorschlag über der Liste.
-function renderHotelHits(q) {
-  const box = $('#hotel-hits');
-  box.innerHTML = '';
-  box.hidden = true;
-  if (!q || q.length < 2) return;
+// Gruppen in sinnvoller Reihenfolge: Jahre absteigend, sonst nach Menge.
+function groupStays(list) {
+  const keyOf = {
+    country: (s) => s.country || 'ohne Land',
+    city: (s) => s.city || 'ohne Stadt',
+    hotel: (s) => s.hotel_name,
+    program: (s) => s.program || 'ohne Programm',
+    status: (s) => s.status_level || 'ohne Status',
+    author: (s) => s.author,
+    year: (s) => (s.checkin ? s.checkin.slice(0, 4) : 'ohne Datum'),
+  }[state.groupBy];
 
-  const seen = new Set();
-  const hits = [];
-  for (const p of state.places) {
-    if (seen.has(p.hotel_id)) continue;
-    if (!fuzzyMatch(p.hotel_name + ' ' + p.city, q)) continue;
-    seen.add(p.hotel_id);
-    hits.push(p);
+  const map = new Map();
+  for (const s of list) {
+    const key = keyOf(s);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(s);
   }
-  if (!hits.length) return;
+  const entries = [...map.entries()];
+  if (state.groupBy === 'year') entries.sort((a, b) => b[0].localeCompare(a[0]));
+  else entries.sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  return entries;
+}
 
-  box.hidden = false;
-  box.appendChild(el('h4', null, 'HOTELS'));
-  for (const p of hits.slice(0, 5)) {
-    const row = el('div', 'hotel-hit');
-    row.appendChild(hotelLink(p.hotel_name, p.hotel_id));
-    row.appendChild(el('span', 'n', [p.city, p.country].filter(Boolean).join(', ')));
-    box.appendChild(row);
+// Ein Block Aufenthalte, je nach Ansicht als Kacheln oder als Zeilen.
+function renderBatch(entries) {
+  const wrap = document.createDocumentFragment();
+  if (state.view === 'rows') {
+    wrap.appendChild(rowsHeader());
+    for (const s of entries) wrap.appendChild(renderStayRow(s));
+  } else {
+    const grid = el('div', 'stay-list');
+    for (const s of entries) grid.appendChild(renderStayCard(s));
+    wrap.appendChild(grid);
   }
+  return wrap;
+}
+
+function rowsHeader() {
+  const head = el('div', 'rows-head');
+  for (const [text, cls] of [['HOTEL', ''], ['ORT', ''], ['ZEITRAUM', 'hide-s'],
+    ['PROGRAMM', 'hide-s'], ['GEBUCHT → ERHALTEN', 'hide-s'], ['UPGRADE', 'right'], ['PREIS', 'right hide-s']]) {
+    head.appendChild(el('span', cls, text));
+  }
+  return head;
+}
+
+function renderStayRow(s) {
+  const row = el('button', 'row' + (state.selected === s.id ? ' is-on' : ''));
+  row.type = 'button';
+
+  row.appendChild(el('span', 'r-hotel', s.hotel_name));
+  row.appendChild(el('span', 'r-muted', s.city || ''));
+  row.appendChild(el('span', 'r-when', stayDates(s)));
+
+  const badges = el('span', 'r-badges r-muted');
+  badges.textContent = [s.program, s.status_level].filter(Boolean).join(' · ');
+  row.appendChild(badges);
+
+  const flow = el('span', 'r-flow');
+  flow.appendChild(el('span', 'r-muted', s.booked_room || '–'));
+  flow.appendChild(el('span', 'r-arrow', '→'));
+  flow.appendChild(el('span', null, s.received_room || '–'));
+  row.appendChild(flow);
+
+  const step = el('span', 'r-step' + (s.upgrade_steps > 0 ? ' up' : s.upgrade_steps < 0 ? ' down' : ''));
+  step.textContent = s.upgrade_steps == null ? '–'
+    : s.upgrade_steps === 0 ? 'keins' : (s.upgrade_steps > 0 ? '+' : '') + s.upgrade_steps;
+  row.appendChild(step);
+
+  row.appendChild(el('span', 'r-price', s.price != null ? formatMoney(s.price, s.currency) : ''));
+
+  row.addEventListener('click', () => {
+    state.selected = s.id;
+    renderStayList();
+    showDetail(s);
+  });
+  return row;
 }
 
 /* ---------------------------------------------------------------- Karten */
@@ -703,6 +792,7 @@ function stayDates(s) {
 
 function closeDetail() {
   $('#detail-pane').classList.remove('is-open');
+  document.querySelector('.workspace').classList.remove('has-detail');
   state.selected = null;
   renderStayList();
   $('#detail-body').innerHTML = '';
@@ -714,6 +804,7 @@ function showDetail(s) {
   const box = $('#detail-body');
   box.innerHTML = '';
   $('#detail-pane').classList.add('is-open');
+  document.querySelector('.workspace').classList.add('has-detail');
 
   box.appendChild(hotelLink(s.hotel_name, s.hotel_id, 'detail-title'));
   box.appendChild(el('p', 'detail-sub', [s.city, s.country].filter(Boolean).join(', ')));
@@ -887,6 +978,7 @@ async function showHotel(hotelId) {
   const box = $('#detail-body');
   box.innerHTML = '';
   $('#detail-pane').classList.add('is-open');
+  document.querySelector('.workspace').classList.add('has-detail');
   box.appendChild(el('p', 'detail-placeholder', 'Wird geladen …'));
 
   try {

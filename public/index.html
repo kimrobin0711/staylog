@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=20260906-170839">
+<link rel="stylesheet" href="/styles.css?v=20260906-171326">
 </head>
 <body>
 
@@ -137,6 +137,24 @@
           <div class="list-tools">
             <button type="button" id="filter-open" class="btn btn-quiet btn-filter">Filter</button>
             <span id="stay-count" class="stay-count"></span>
+
+            <label class="inline-select">Gruppieren
+              <select id="group-by">
+                <option value="">nicht</option>
+                <option value="country">Land</option>
+                <option value="city">Stadt</option>
+                <option value="hotel">Hotel</option>
+                <option value="program">Programm</option>
+                <option value="status">Status</option>
+                <option value="author">Person</option>
+                <option value="year">Jahr</option>
+              </select>
+            </label>
+
+            <div class="view-toggle" role="group" aria-label="Ansicht">
+              <button type="button" id="view-cards" class="is-on" title="Kacheln">Kacheln</button>
+              <button type="button" id="view-rows" title="Liste">Liste</button>
+            </div>
           </div>
           <div id="chips" class="chips-active"></div>
         </div>
@@ -306,6 +324,6 @@
   </nav>
 </div>
 
-<script src="/app.js?v=20260906-170839"></script>
+<script src="/app.js?v=20260906-171326"></script>
 </body>
 </html>

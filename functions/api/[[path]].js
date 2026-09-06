@@ -530,6 +530,13 @@ async function unstick(env, hotelId) {
   ).bind(hotelId).run();
 }
 
+// Fehlt ein Zahlenwert, soll er leer bleiben – nicht zu einer Null werden.
+function optionalNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 async function runEnrichment(env, hotelId) {
   const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
   if (!hotel) return;
@@ -591,9 +598,9 @@ async function runEnrichment(env, hotelId) {
         hotelId, String(r.name).trim(), Number(r.rank) || i + 1,
         r.source || 'llm', r.source_url || null,
         r.type === 'suite' ? 'suite' : r.type === 'room' ? 'room' : null,
-        Number.isFinite(Number(r.size_sqm)) ? Number(r.size_sqm) : null,
+        optionalNumber(r.size_sqm),
         r.bed_type || null,
-        Number.isFinite(Number(r.max_occupancy)) ? Number(r.max_occupancy) : null,
+        optionalNumber(r.max_occupancy),
         r.description || null, stamp, stamp
       )
     );
@@ -799,6 +806,22 @@ const isSuiteUpgrade = (stay, lookup) =>
 
 const share = (part, whole) => (whole ? Math.round((part / whole) * 100) : null);
 
+// Fuer den Hotelabgleich: Gross-/Kleinschreibung, Akzente und Zeichensetzung weg.
+function slug(text) {
+  return (text || '')
+    .toLowerCase().replace(/ß/g, 'ss')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Grobe Entfernung in Metern, reicht fuer "dasselbe Gebaeude".
+function metersApart(a, b) {
+  if (!a?.lat || !a?.lon || !b?.lat || !b?.lon) return Infinity;
+  const dLat = (a.lat - b.lat) * 111000;
+  const dLon = (a.lon - b.lon) * 111000 * Math.cos((a.lat * Math.PI) / 180);
+  return Math.sqrt(dLat * dLat + dLon * dLon);
+}
+
 /* ------------------------------------------------------------- Endpunkte */
 
 export async function onRequest(context) {
@@ -982,9 +1005,19 @@ export async function onRequest(context) {
         existing = await env.DB.prepare('SELECT * FROM hotels WHERE source = ? AND source_id = ?')
           .bind(b.source || 'osm', b.source_id).first();
       }
+
+      // Dieselbe Kennung gibt es nicht immer: Photon und Overpass vergeben
+      // eigene. Deshalb zusaetzlich ueber Name und Lage abgleichen.
       if (!existing) {
-        existing = await env.DB.prepare('SELECT * FROM hotels WHERE name = ? AND IFNULL(city, "") = ?')
-          .bind(b.name, b.city || '').first();
+        const candidates = await env.DB.prepare(
+          'SELECT * FROM hotels WHERE IFNULL(city, "") = ?'
+        ).bind(b.city || '').all();
+
+        const wanted = slug(b.name);
+        existing = candidates.results.find((h) => slug(h.name) === wanted)
+          || candidates.results.find((h) => metersApart(h, b) < 120
+               && (slug(h.name).includes(wanted) || wanted.includes(slug(h.name))))
+          || null;
       }
 
       let hotelId;

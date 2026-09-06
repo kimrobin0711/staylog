@@ -717,3 +717,12 @@ body.is-guest .drawer-body > .note { display: none; }
   font-size: .82rem; color: var(--down); margin-bottom: 12px;
   word-break: break-word;
 }
+
+.update-bar {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  flex-wrap: wrap;
+  background: var(--ink); color: var(--paper);
+  padding: 10px 24px; font-size: .9rem;
+}
+.update-bar .btn { border-color: rgba(242,240,234,.4); color: var(--paper); background: none; }
+.update-bar .btn:hover { border-color: var(--paper); }

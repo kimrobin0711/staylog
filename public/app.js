@@ -2067,3 +2067,37 @@ async function start() {
 }
 start();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
+/* ------------------------------------------------- Neue Fassung erkennen */
+
+// Die eigene Fassung steht als Version im Skriptpfad.
+const MY_VERSION = (document.currentScript?.src || '').split('v=')[1] || '';
+
+$('#update-now').addEventListener('click', async () => {
+  if ('serviceWorker' in navigator) {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((r) => r.unregister()));
+  }
+  if (window.caches) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  }
+  location.reload(true);
+});
+
+async function checkVersion() {
+  try {
+    const res = await fetch('/version.json', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (MY_VERSION && data.version && data.version !== MY_VERSION) {
+      $('#update-bar').hidden = false;
+    }
+  } catch { /* offline, dann eben nicht */ }
+}
+
+checkVersion();
+setInterval(checkVersion, 120000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) checkVersion();
+});

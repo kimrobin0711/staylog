@@ -19,8 +19,8 @@ const now = () => new Date().toISOString();
 // Ein gemeinsames Passwort oeffnet die Seite. Der Name sagt nur, wer den
 // Eintrag geschrieben hat – er ist keine zweite Huerde.
 function whoami(request, env) {
-  const pass = request.headers.get('x-stay-pass') || '';
-  const expected = env.STAY_PASSWORD || '';
+  const pass = (request.headers.get('x-stay-pass') || '').trim();
+  const expected = (env.STAY_PASSWORD || '').trim();
   if (!expected || pass !== expected) return null;
 
   let name = '';
@@ -317,6 +317,22 @@ export async function onRequest(context) {
         'content-type': obj.httpMetadata?.contentType || 'image/jpeg',
         'cache-control': 'public, max-age=31536000, immutable',
       },
+    });
+  }
+
+  // Pruefseite. Verraet keine Werte, nur ob sie vorhanden sind.
+  if (path === '/health' && method === 'GET') {
+    const sent = (request.headers.get('x-stay-pass') || '').trim();
+    const expected = (env.STAY_PASSWORD || '').trim();
+    return json({
+      passwort_hinterlegt: expected.length > 0,
+      laenge_hinterlegt: expected.length,
+      laenge_gesendet: sent.length,
+      passt: expected.length > 0 && sent === expected,
+      adminpasswort_hinterlegt: Boolean(env.ADMIN_PASSWORD),
+      anthropic_schluessel_hinterlegt: Boolean(env.ANTHROPIC_API_KEY),
+      datenbank_verbunden: Boolean(env.DB),
+      bilderspeicher_verbunden: Boolean(env.PHOTOS),
     });
   }
 

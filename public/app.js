@@ -23,6 +23,7 @@ const state = {
   myStatus: JSON.parse(localStorage.getItem('staylog.status') || '{}'),
   programTouched: false,
   addingStatus: false,
+  draftStatus: {},
 };
 
 /* ------------------------------------------------------------ Stammdaten */
@@ -87,6 +88,56 @@ async function api(path, options = {}) {
   const body = type.includes('json') ? await res.json() : null;
   if (!res.ok) throw new Error(body?.error || 'Das hat nicht geklappt (' + res.status + ')');
   return body;
+}
+
+/* ------------------------------------------------- Tolerante Namenssuche */
+
+// Akzente weg, Sonderzeichen weg, alles klein.
+function normalize(text) {
+  return (text || '')
+    .toLowerCase()
+    .replace(/ß/g, 'ss')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function distance(a, b) {
+  if (a === b) return 0;
+  if (!a.length || !b.length) return Math.max(a.length, b.length);
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+// Jedes getippte Wort muss irgendein Wort im Namen treffen –
+// als Anfang, als Teil, oder mit ein bis zwei Abweichungen.
+function fuzzyMatch(name, query) {
+  const words = normalize(name).split(' ').filter(Boolean);
+  const parts = normalize(query).split(' ').filter(Boolean);
+  if (!parts.length) return true;
+
+  return parts.every((part) => {
+    const tolerance = part.length <= 4 ? 0 : part.length <= 7 ? 1 : 2;
+    return words.some((word) => {
+      if (word.includes(part) || part.includes(word)) return true;
+      if (!tolerance) return false;
+      if (distance(word, part) <= tolerance) return true;
+      // auch der Wortanfang zaehlt, damit "meriden" auf "meridien" passt
+      return distance(word.slice(0, part.length + tolerance), part) <= tolerance;
+    });
+  });
 }
 
 const debounce = (fn, ms = 350) => {
@@ -159,42 +210,46 @@ $('#who').addEventListener('click', () => {
 
 /* ---------------------------------------------------------- Einstellungen */
 
-function saveStatuses() {
-  localStorage.setItem('staylog.status', JSON.stringify(state.myStatus));
-  syncStatusOptions();
-  api('/me/status', {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ statuses: state.myStatus }),
-  }).catch(() => { /* bleibt zumindest im Gerät */ });
+// Die Schublade arbeitet auf einem Entwurf. Erst Speichern uebernimmt ihn.
+function openSettings() {
+  state.draftStatus = { ...state.myStatus };
+  state.addingStatus = false;
+  buildSettings();
+  $('#settings').classList.add('is-open');
+  $('#settings-veil').classList.add('is-open');
+  $('#settings-toggle').classList.add('is-on');
+  $('#settings-close').focus();
 }
 
-// Eine Zeile je gepflegtem Programm, plus die eine offene Zeile zum Hinzufuegen.
+function closeSettings() {
+  $('#settings').classList.remove('is-open');
+  $('#settings-veil').classList.remove('is-open');
+  $('#settings-toggle').classList.remove('is-on');
+  $('#settings-toggle').focus();
+}
+
 function buildSettings() {
   const box = $('#status-settings');
   box.innerHTML = '';
 
-  const entries = Object.entries(state.myStatus);
+  const entries = Object.entries(state.draftStatus);
   if (!entries.length && !state.addingStatus) {
     box.appendChild(el('p', 'status-empty', 'Noch kein Programm gepflegt.'));
   }
-
   for (const [program] of entries) box.appendChild(statusRow(program));
   if (state.addingStatus) box.appendChild(statusRow(null));
 
-  $('#status-add').hidden = state.addingStatus
-    || entries.length >= Object.keys(PROGRAMS).length;
+  $('#status-add').hidden = state.addingStatus || entries.length >= Object.keys(PROGRAMS).length;
 }
 
 function statusRow(existing) {
   const row = el('div', 'status-row');
-  const used = new Set(Object.keys(state.myStatus).filter((p) => p !== existing));
+  const used = new Set(Object.keys(state.draftStatus).filter((p) => p !== existing));
 
   const progSel = document.createElement('select');
   progSel.appendChild(new Option('– Programm wählen –', ''));
   for (const [name, info] of Object.entries(PROGRAMS)) {
-    if (!info.status.length) continue;
-    if (used.has(name)) continue;
+    if (!info.status.length || used.has(name)) continue;
     progSel.appendChild(new Option(name, name));
   }
   progSel.value = existing || '';
@@ -207,10 +262,10 @@ function statusRow(existing) {
     levelSel.value = chosen || '';
     levelSel.disabled = !program;
   };
-  fillLevels(existing, existing ? state.myStatus[existing] : '');
+  fillLevels(existing, existing ? state.draftStatus[existing] : '');
 
   progSel.addEventListener('change', () => {
-    if (existing && existing !== progSel.value) delete state.myStatus[existing];
+    if (existing && existing !== progSel.value) delete state.draftStatus[existing];
     fillLevels(progSel.value, '');
     if (progSel.value) levelSel.focus();
   });
@@ -218,10 +273,9 @@ function statusRow(existing) {
   levelSel.addEventListener('change', () => {
     const program = progSel.value;
     if (!program) return;
-    if (levelSel.value) state.myStatus[program] = levelSel.value;
-    else delete state.myStatus[program];
+    if (levelSel.value) state.draftStatus[program] = levelSel.value;
+    else delete state.draftStatus[program];
     state.addingStatus = false;
-    saveStatuses();
     buildSettings();
   });
 
@@ -229,9 +283,8 @@ function statusRow(existing) {
   remove.type = 'button';
   remove.title = 'Zeile entfernen';
   remove.addEventListener('click', () => {
-    if (progSel.value) delete state.myStatus[progSel.value];
+    if (progSel.value) delete state.draftStatus[progSel.value];
     state.addingStatus = false;
-    saveStatuses();
     buildSettings();
   });
 
@@ -245,10 +298,33 @@ $('#status-add').addEventListener('click', () => {
   $('#status-settings').querySelector('.status-row:last-child select')?.focus();
 });
 
+$('#settings-save').addEventListener('click', async () => {
+  const button = $('#settings-save');
+  button.disabled = true;
+  state.myStatus = { ...state.draftStatus };
+  localStorage.setItem('staylog.status', JSON.stringify(state.myStatus));
+  syncStatusOptions();
+  try {
+    await api('/me/status', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ statuses: state.myStatus }),
+    });
+  } catch { /* im Gerät steht es trotzdem */ }
+  button.disabled = false;
+  closeSettings();
+});
+
 $('#settings-toggle').addEventListener('click', () => {
-  const panel = $('#settings');
-  panel.hidden = !panel.hidden;
-  $('#settings-toggle').classList.toggle('is-on', !panel.hidden);
+  if ($('#settings').classList.contains('is-open')) closeSettings();
+  else openSettings();
+});
+
+$('#settings-cancel').addEventListener('click', closeSettings);
+$('#settings-close').addEventListener('click', closeSettings);
+$('#settings-veil').addEventListener('click', closeSettings);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('#settings').classList.contains('is-open')) closeSettings();
 });
 
 /* ------------------------------------------------------------- Navigation */
@@ -273,7 +349,7 @@ function renderCountryOptions() {
   if (!q) return;
 
   const hits = COUNTRIES
-    .filter(([code, name]) => name.toLowerCase().includes(q) || code.toLowerCase() === q)
+    .filter(([code, name]) => fuzzyMatch(name, q) || code.toLowerCase() === q)
     .slice(0, 8);
 
   if (!hits.length) {
@@ -342,11 +418,15 @@ async function chooseCity(city) {
   document.querySelector('[data-step="hotel"]').hidden = false;
 
   const box = $('#hotel-results');
+  const count = $('#hotel-count');
+  count.textContent = '';
   box.innerHTML = '<p class="options-empty">Hotels werden geladen …</p>';
   try {
     state.hotelCandidates = await api('/geo/hotels?lat=' + city.lat + '&lon=' + city.lon);
+    count.textContent = state.hotelCandidates.length + ' im Umkreis';
     renderHotelOptions();
   } catch (e) {
+    count.textContent = 'Umkreissuche gescheitert';
     box.innerHTML = '';
     box.appendChild(el('p', 'options-empty', e.message));
   }
@@ -354,14 +434,14 @@ async function chooseCity(city) {
 
 function renderHotelOptions(extra = []) {
   const box = $('#hotel-results');
-  const q = $('#p-hotel').value.trim().toLowerCase();
+  const q = $('#p-hotel').value.trim();
 
   const merged = [];
   const seen = new Set();
   for (const h of [...extra, ...state.hotelCandidates]) {
-    const marker = h.name.toLowerCase();
+    const marker = normalize(h.name);
     if (seen.has(marker)) continue;
-    if (q && !marker.includes(q)) continue;
+    if (q && !fuzzyMatch(h.name, q)) continue;
     seen.add(marker);
     merged.push(h);
   }
@@ -370,6 +450,7 @@ function renderHotelOptions(extra = []) {
   if (!merged.length) {
     box.appendChild(el('p', 'options-empty',
       q ? 'Nichts gefunden. Weiter tippen oder von Hand eintragen.' : 'Keine Hotels im Umkreis gefunden.'));
+    if (q) box.appendChild(el('p', 'options-empty', 'Es wird zusätzlich direkt nach dem Namen gesucht, das dauert einen Moment.'));
     return;
   }
   for (const h of merged.slice(0, 40)) {
@@ -671,7 +752,6 @@ function watchEnrichment() {
 /* ------------------------------------------------------------- Formular */
 
 function buildForm() {
-  buildSettings();
 
   const prog = $('#s-program');
   prog.innerHTML = '';

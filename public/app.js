@@ -18,6 +18,9 @@ const state = {
   hotelCandidates: [],
   pendingPhotos: [],
   pollTimer: null,
+  skipEnrichment: false,
+  myStatus: JSON.parse(localStorage.getItem('staylog.status') || '{}'),
+  programTouched: false,
 };
 
 /* ------------------------------------------------------------ Stammdaten */
@@ -134,6 +137,35 @@ $('#who').addEventListener('click', () => {
   localStorage.setItem('staylog.name', state.me);
   $('#who').textContent = state.me;
   loadStays();
+});
+
+/* ---------------------------------------------------------- Einstellungen */
+
+function buildSettings() {
+  const box = $('#status-settings');
+  box.innerHTML = '';
+  for (const [program, info] of Object.entries(PROGRAMS)) {
+    if (!info.status.length) continue;
+    const label = el('label', null, program);
+    const sel = document.createElement('select');
+    sel.appendChild(new Option('– kein Status –', ''));
+    for (const level of info.status) sel.appendChild(new Option(level, level));
+    sel.value = state.myStatus[program] || '';
+    sel.addEventListener('change', () => {
+      if (sel.value) state.myStatus[program] = sel.value;
+      else delete state.myStatus[program];
+      localStorage.setItem('staylog.status', JSON.stringify(state.myStatus));
+      syncStatusOptions();
+    });
+    label.appendChild(sel);
+    box.appendChild(label);
+  }
+}
+
+$('#settings-toggle').addEventListener('click', () => {
+  const panel = $('#settings');
+  panel.hidden = !panel.hidden;
+  $('#settings-toggle').classList.toggle('is-on', !panel.hidden);
 });
 
 /* ------------------------------------------------------------- Navigation */
@@ -303,16 +335,96 @@ async function chooseHotel(candidate) {
 
   state.hotel = res.hotel;
   state.rooms = res.rooms;
+  state.skipEnrichment = false;
+  state.programTouched = false;
 
   $('#picker').hidden = true;
   $('#stay-form').hidden = false;
-  $('#chosen-name').textContent = state.hotel.name;
-  $('#chosen-place').textContent = [state.hotel.city, state.hotel.country].filter(Boolean).join(', ');
-
-  if (state.hotel.program) $('#s-program').value = state.hotel.program;
-  syncStatusOptions();
+  renderChosenHotel();
+  applyHotelProgram();
   renderRooms();
   watchEnrichment();
+  loadGallery();
+}
+
+// Programm aus dem Hotel uebernehmen, solange nichts von Hand gewaehlt wurde.
+function applyHotelProgram() {
+  const sel = $('#s-program');
+  const program = state.hotel?.program;
+  if (program && !state.programTouched && [...sel.options].some((o) => o.value === program)) {
+    sel.value = program;
+  }
+  syncStatusOptions();
+}
+
+function renderChosenHotel() {
+  const hotel = state.hotel;
+  if (!hotel) return;
+
+  $('#chosen-name').textContent = hotel.name;
+  $('#chosen-place').textContent = [hotel.city, hotel.country].filter(Boolean).join(', ');
+
+  const desc = $('#chosen-desc');
+  desc.textContent = hotel.description || '';
+  desc.hidden = !hotel.description;
+
+  const links = $('#chosen-links');
+  links.innerHTML = '';
+
+  if (hotel.address) links.appendChild(el('span', null, hotel.address));
+
+  if (hotel.website) {
+    const a = el('a', null, 'Hotelseite');
+    a.href = hotel.website;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    links.appendChild(a);
+  }
+  if (hotel.lat && hotel.lon) {
+    const map = el('a', null, 'auf der Karte');
+    map.href = 'https://www.openstreetmap.org/?mlat=' + hotel.lat + '&mlon=' + hotel.lon + '#map=17/' + hotel.lat + '/' + hotel.lon;
+    map.target = '_blank';
+    map.rel = 'noopener';
+    links.appendChild(map);
+  }
+  if (hotel.lounge === 1) links.appendChild(el('span', null, 'Lounge vorhanden'));
+  if (hotel.breakfast_note) links.appendChild(el('span', null, hotel.breakfast_note));
+}
+
+async function loadGallery() {
+  const box = $('#chosen-gallery');
+  box.innerHTML = '';
+  if (!state.hotel) return;
+
+  try {
+    const images = await api('/hotels/' + state.hotel.id + '/images');
+    if (!images.length) return;
+
+    for (const img of images) {
+      const fig = document.createElement('figure');
+      const image = document.createElement('img');
+      image.src = img.thumb;
+      image.alt = state.hotel.name;
+      image.loading = 'lazy';
+      fig.appendChild(image);
+
+      const credit = el('figcaption');
+      const parts = [img.author, img.license].filter(Boolean).join(' · ');
+      if (img.page) {
+        const a = el('a', null, parts || 'Wikimedia Commons');
+        a.href = img.page;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        credit.appendChild(a);
+      } else {
+        credit.textContent = parts;
+      }
+      fig.appendChild(credit);
+      box.appendChild(fig);
+    }
+    box.insertAdjacentElement('afterend', el('p', 'gallery-note',
+      'Bilder aus Wikimedia Commons. Nicht jedes Haus ist dort zu finden.'));
+  } catch { /* ohne Bilder geht es auch */ }
 }
 
 $('#chosen-reset').addEventListener('click', resetPicker);
@@ -341,21 +453,51 @@ function fallbackRooms() {
 function renderRooms() {
   const list = $('#rooms-list');
   const status = $('#rooms-status');
-  list.innerHTML = '';
-
+  const adder = document.querySelector('.rooms-add');
   const st = state.hotel?.enrich_status;
-  if (st === 'pending' || st === 'running') {
-    status.textContent = 'Kategorien werden recherchiert …';
-  } else if (st === 'failed') {
-    status.textContent = 'Nichts Gesichertes gefunden – bitte selbst ergänzen';
-  } else if (state.rooms.length) {
-    const open = state.rooms.filter((r) => !r.confirmed).length;
-    status.textContent = open ? open + ' Vorschläge – bestätige, was stimmt' : 'bestätigt';
-  } else {
+  const busy = !state.skipEnrichment && (st === 'pending' || st === 'running');
+
+  list.innerHTML = '';
+  adder.hidden = busy;
+
+  // Solange recherchiert wird, zeigen wir bewusst keine Kategorien –
+  // eine allgemeine Markenliste sieht sonst aus wie ein Ergebnis.
+  if (busy) {
     status.textContent = '';
+    const wait = el('div', 'rooms-wait');
+    wait.appendChild(el('span', 'spinner'));
+    const texts = el('div');
+    texts.appendChild(el('div', null, 'Zimmerkategorien werden recherchiert'));
+    texts.appendChild(el('div', 'rooms-wait-note', 'Dauert meist zehn bis zwanzig Sekunden. Du kannst den Rest schon ausfüllen.'));
+    wait.appendChild(texts);
+    list.appendChild(wait);
+
+    const skip = el('button', 'btn btn-quiet', 'nicht warten, selbst eintragen');
+    skip.type = 'button';
+    skip.addEventListener('click', () => {
+      state.skipEnrichment = true;
+      clearInterval(state.pollTimer);
+      renderRooms();
+    });
+    list.appendChild(skip);
+
+    fillRoomSelects([], 'wird recherchiert …');
+    return;
   }
 
   const rooms = state.rooms.length ? state.rooms : fallbackRooms();
+  const isFallback = state.rooms.length === 0;
+
+  if (isFallback) {
+    status.textContent = 'allgemeine Liste der Marke – bitte anpassen';
+  } else {
+    const open = state.rooms.filter((r) => !r.confirmed).length;
+    status.textContent = open ? open + ' Vorschläge – bestätige, was stimmt' : 'bestätigt';
+  }
+
+  if (state.hotel?.enrich_error && isFallback) {
+    list.appendChild(el('p', 'rooms-wait-note', 'Die Recherche hat nichts Gesichertes gefunden.'));
+  }
 
   for (const room of rooms) {
     const row = el('div', 'room-row' + (room.confirmed ? '' : ' is-suggested'));
@@ -382,13 +524,14 @@ function renderRooms() {
   fillRoomSelects(rooms);
 }
 
-function fillRoomSelects(rooms) {
+function fillRoomSelects(rooms, placeholder) {
   for (const id of ['#s-booked', '#s-received']) {
     const sel = $(id);
     const previous = sel.value;
     sel.innerHTML = '';
-    sel.appendChild(new Option('– keine Angabe –', ''));
+    sel.appendChild(new Option(placeholder || '– keine Angabe –', ''));
     for (const r of rooms) sel.appendChild(new Option(r.name, r.name));
+    sel.disabled = Boolean(placeholder);
     if (previous) sel.value = previous;
   }
 }
@@ -429,6 +572,8 @@ function watchEnrichment() {
       const res = await api('/hotels/' + state.hotel.id);
       state.hotel = res.hotel;
       state.rooms = res.rooms;
+      renderChosenHotel();
+      applyHotelProgram();
       renderRooms();
       if (['ready', 'failed'].includes(res.hotel.enrich_status)) clearInterval(state.pollTimer);
     } catch { /* still weiter versuchen */ }
@@ -438,12 +583,17 @@ function watchEnrichment() {
 /* ------------------------------------------------------------- Formular */
 
 function buildForm() {
+  buildSettings();
 
   const prog = $('#s-program');
   prog.innerHTML = '';
   prog.appendChild(new Option('– Programm wählen –', ''));
   for (const name of Object.keys(PROGRAMS)) prog.appendChild(new Option(name, name));
-  prog.addEventListener('change', () => { syncStatusOptions(); renderRooms(); });
+  prog.addEventListener('change', () => {
+    state.programTouched = true;
+    syncStatusOptions();
+    renderRooms();
+  });
 
   const chips = $('#benefit-list');
   chips.innerHTML = '';
@@ -471,9 +621,15 @@ function syncStatusOptions() {
   const sel = $('#s-status');
   const program = $('#s-program').value;
   const levels = PROGRAMS[program]?.status || [];
+  const previous = sel.value;
   sel.innerHTML = '';
   sel.appendChild(new Option('– kein Status –', ''));
   for (const s of levels) sel.appendChild(new Option(s, s));
+
+  // Gepflegter Status gewinnt, solange nichts anderes gewaehlt wurde.
+  const mine = state.myStatus[program];
+  if (previous && levels.includes(previous)) sel.value = previous;
+  else if (mine && levels.includes(mine)) sel.value = mine;
 }
 
 /* Bilder verkleinern, bevor sie hochgehen. */

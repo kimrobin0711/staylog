@@ -64,9 +64,9 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 
 .topbar {
   position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: baseline; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
   gap: 12px;
-  padding: 14px 18px 12px;
+  padding: 14px 24px 12px;
   background: var(--paper);
   border-bottom: 1px solid var(--line);
 }
@@ -79,7 +79,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 
 .gate-inner input + input { margin-top: 10px; }
 
-.view { padding: 18px; max-width: 720px; margin: 0 auto; }
+.view { padding: 22px 24px; max-width: 1120px; margin: 0 auto; }
 
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
@@ -204,6 +204,19 @@ label.block, .grid2 label { display: block; }
 .room-row.is-suggested .name { color: var(--ink-soft); }
 .room-row a { color: var(--brass); font-size: 0.78rem; flex: none; }
 .rooms-add { display: flex; gap: 8px; margin-top: 12px; }
+.rooms-wait { display: flex; align-items: flex-start; gap: 11px; padding: 6px 0 12px; }
+.rooms-wait-note { color: var(--ink-soft); font-size: 0.85rem; margin-top: 3px; }
+.spinner {
+  flex: none; width: 17px; height: 17px; margin-top: 3px;
+  border: 2px solid var(--line); border-top-color: var(--brass);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 3s; }
+}
+select:disabled { color: var(--ink-soft); }
 .rooms-add input { flex: 1; min-height: 38px; }
 
 /* -------------------------------------------------------- Zusatzleistungen */
@@ -311,3 +324,49 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .log-scroll { overflow-x: auto; }
 .ev { font-weight: 600; }
 .ev-fail, .ev-blocked { color: var(--down); }
+
+/* ------------------------------------------------- Breitere Anordnung */
+
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.icon-btn {
+  border: 1px solid var(--line); background: var(--card);
+  border-radius: var(--radius); cursor: pointer;
+  width: 36px; height: 36px; font-size: 1rem; line-height: 1;
+}
+.icon-btn.is-on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+.settings {
+  max-width: 1120px; margin: 0 auto; padding: 20px 24px;
+  border-bottom: 1px solid var(--line); background: var(--card);
+}
+.settings h2 { font-size: 1.05rem; }
+.settings-note { color: var(--ink-soft); font-size: 0.88rem; margin: 6px 0 16px; }
+.status-settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px 18px; }
+.status-settings label { display: block; font-size: 0.85rem; color: var(--ink-soft); }
+.status-settings select { margin-top: 4px; color: var(--ink); }
+
+/* Ab Tablettbreite zwei Spalten fuer die Aufenthaltsliste */
+@media (min-width: 860px) {
+  .stay-list { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .grid2 { grid-template-columns: 1fr 1fr 1fr; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 22px; align-items: start; }
+}
+
+/* Fliesstext bleibt schmal genug zum Lesen */
+.stay-notes, .chosen-desc, .settings-note { max-width: 62ch; }
+
+/* ---------------------------------------------- Hotelkarte mit Bildern */
+
+.chosen { display: block; }
+.chosen-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.chosen-desc { margin: 10px 0 0; font-size: 0.92rem; color: var(--ink-soft); }
+.chosen-links { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; font-size: 0.88rem; }
+.chosen-links a { color: var(--brass); }
+.chosen-links span { color: var(--ink-soft); }
+
+.gallery { display: flex; gap: 8px; overflow-x: auto; margin-top: 12px; padding-bottom: 4px; }
+.gallery figure { margin: 0; flex: none; width: 168px; }
+.gallery img { width: 168px; height: 112px; object-fit: cover; border-radius: 7px; display: block; background: var(--paper-deep); }
+.gallery figcaption { font-size: 0.72rem; color: var(--ink-soft); margin-top: 4px; line-height: 1.3; }
+.gallery figcaption a { color: var(--ink-soft); }
+.gallery-note { font-size: 0.8rem; color: var(--ink-soft); margin: 10px 0 0; }

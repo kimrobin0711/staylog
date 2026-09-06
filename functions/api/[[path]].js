@@ -293,6 +293,9 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown, ohne Vor- oder Na
   "program": "Marriott Bonvoy",
   "lounge": true,
   "breakfast_note": "kurzer Satz zur Fruehstuecksregelung fuer Statusgaeste, sonst null",
+  "address": "Strasse Hausnummer, PLZ Ort, Land",
+  "website": "https://... offizielle Seite genau dieses Hauses",
+  "description": "zwei bis drei Saetze: Lage, Groesse, was das Haus ausmacht",
   "rooms": [
     {"name": "Classic Room", "rank": 1, "source_url": "https://..."},
     {"name": "Deluxe Room", "rank": 2, "source_url": "https://..."}
@@ -304,6 +307,7 @@ Regeln:
 - "name" ist der Kategoriename genau so, wie ihn das Hotel schreibt.
 - "program" ist das Vielfliegerprogramm bzw. Treueprogramm der Kette, z.B. "Marriott Bonvoy", "Hilton Honors", "IHG One Rewards", "World of Hyatt", "Accor ALL", "Radisson Rewards". Ist das Hotel unabhaengig, setze null.
 - Jede Kategorie braucht die Quell-URL, aus der sie stammt.
+- "website" ist die Seite genau dieses Hauses, nicht die Startseite der Kette. Findest du sie nicht, setze null.
 - Findest du das Hotel nicht sicher, antworte {"found": false, "rooms": []}. Erfinde nichts.`;
 
 async function enrichHotel(env, hotel) {
@@ -370,7 +374,9 @@ async function runEnrichment(env, hotelId) {
       env.DB.prepare(
         `UPDATE hotels SET enrich_status = 'ready', enriched_at = ?,
            chain = COALESCE(?, chain), brand = COALESCE(?, brand),
-           program = COALESCE(?, program), lounge = ?, breakfast_note = ?
+           program = COALESCE(?, program), lounge = ?, breakfast_note = ?,
+           address = COALESCE(?, address), website = COALESCE(?, website),
+           description = COALESCE(?, description)
          WHERE id = ?`
       ).bind(
         stamp,
@@ -379,6 +385,9 @@ async function runEnrichment(env, hotelId) {
         result.program || null,
         result.lounge === true ? 1 : result.lounge === false ? 0 : null,
         result.breakfast_note || null,
+        result.address || null,
+        result.website || null,
+        result.description || null,
         hotelId
       )
     );
@@ -388,6 +397,43 @@ async function runEnrichment(env, hotelId) {
     await env.DB.prepare("UPDATE hotels SET enrich_status = 'failed', enrich_error = ? WHERE id = ?")
       .bind(String(err.message || err).slice(0, 500), hotelId).run();
   }
+}
+
+/* ------------------------------------- Bilder aus Wikimedia Commons */
+// Frei lizenziert, kein Schluessel noetig. Urheber und Lizenz kommen mit.
+
+async function commonsImages(query) {
+  const url = new URL('https://commons.wikimedia.org/w/api.php');
+  url.searchParams.set('action', 'query');
+  url.searchParams.set('generator', 'search');
+  url.searchParams.set('gsrsearch', query);
+  url.searchParams.set('gsrnamespace', '6');
+  url.searchParams.set('gsrlimit', '8');
+  url.searchParams.set('prop', 'imageinfo');
+  url.searchParams.set('iiprop', 'url|extmetadata');
+  url.searchParams.set('iiurlwidth', '480');
+  url.searchParams.set('format', 'json');
+
+  const res = await fetch(url.toString(), { headers: { 'user-agent': UA } });
+  if (!res.ok) return [];
+  const data = await res.json();
+  const pages = Object.values(data.query?.pages || {});
+
+  return pages
+    .map((page) => {
+      const info = page.imageinfo?.[0];
+      if (!info || !/\.(jpe?g|png)$/i.test(info.url || '')) return null;
+      const meta = info.extmetadata || {};
+      const strip = (html) => (html || '').replace(/<[^>]*>/g, '').trim() || null;
+      return {
+        thumb: info.thumburl || info.url,
+        page: info.descriptionurl || null,
+        author: strip(meta.Artist?.value),
+        license: strip(meta.LicenseShortName?.value),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 6);
 }
 
 /* ------------------------------------------------------------- Endpunkte */
@@ -550,6 +596,16 @@ export async function onRequest(context) {
         const rooms = await env.DB.prepare('SELECT * FROM room_types WHERE hotel_id = ? ORDER BY rank, name')
           .bind(hotelId).all();
         return json({ hotel, rooms: rooms.results });
+      }
+
+      if (sub === '/images' && method === 'GET') {
+        const hotel = await env.DB.prepare('SELECT name, city FROM hotels WHERE id = ?').bind(hotelId).first();
+        if (!hotel) return fail('Hotel nicht gefunden', 404);
+        try {
+          return json(await commonsImages([hotel.name, hotel.city].filter(Boolean).join(' ')));
+        } catch {
+          return json([]);
+        }
       }
 
       if (sub === '/enrich' && method === 'POST') {

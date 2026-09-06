@@ -29,8 +29,17 @@
 
   <header class="topbar">
     <h1 class="wordmark small">stay<span>LOG</span></h1>
-    <button id="who" class="who" title="Namen ändern oder abmelden"></button>
+    <div class="topbar-right">
+      <button id="who" class="who" title="Namen ändern oder abmelden"></button>
+      <button id="settings-toggle" class="icon-btn" title="Einstellungen" aria-label="Einstellungen">⚙</button>
+    </div>
   </header>
+
+  <section id="settings" class="settings" hidden>
+    <h2>Deine Statuslevel</h2>
+    <p class="settings-note">Einmal gepflegt, wird der passende Status beim Eintragen automatisch gesetzt. Gilt nur auf diesem Gerät.</p>
+    <div id="status-settings" class="status-settings"></div>
+  </section>
 
   <!-- Aufenthalte -->
   <main id="view-stays" class="view">
@@ -69,11 +78,16 @@
 
     <form id="stay-form" hidden>
       <div class="chosen">
-        <div>
-          <strong id="chosen-name"></strong>
-          <span id="chosen-place" class="muted"></span>
+        <div class="chosen-head">
+          <div>
+            <strong id="chosen-name"></strong>
+            <span id="chosen-place" class="muted"></span>
+          </div>
+          <button type="button" id="chosen-reset" class="btn btn-quiet">ändern</button>
         </div>
-        <button type="button" id="chosen-reset" class="btn btn-quiet">ändern</button>
+        <p id="chosen-desc" class="chosen-desc" hidden></p>
+        <div id="chosen-links" class="chosen-links"></div>
+        <div id="chosen-gallery" class="gallery"></div>
       </div>
 
       <div id="rooms-box" class="rooms-box">

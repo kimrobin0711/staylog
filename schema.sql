@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS hotels (
   lon            REAL,
   lounge         INTEGER,                          -- 0 nein, 1 ja, NULL unbekannt
   breakfast_note TEXT,
+  address        TEXT,
+  website        TEXT,
+  description    TEXT,
   enrich_status  TEXT NOT NULL DEFAULT 'pending',  -- pending | running | ready | failed
   enrich_error   TEXT,
   enriched_at    TEXT,
@@ -90,3 +93,8 @@ CREATE TABLE IF NOT EXISTS access_log (
 
 CREATE INDEX IF NOT EXISTS access_log_ts_idx ON access_log(ts);
 CREATE INDEX IF NOT EXISTS access_log_ip_idx ON access_log(ip, event, ts);
+
+-- Nachtraeglich fuer bestehende Datenbanken (Fehler "duplicate column" ist hier harmlos):
+-- ALTER TABLE hotels ADD COLUMN address TEXT;
+-- ALTER TABLE hotels ADD COLUMN website TEXT;
+-- ALTER TABLE hotels ADD COLUMN description TEXT;

@@ -97,21 +97,36 @@ const BENEFITS = [
 ];
 const benefitHint = (name) => (BENEFITS.find(([b]) => b === name) || [])[1] || null;
 
-const COUNTRIES = [
-  ['DE', 'Deutschland'], ['AT', 'Österreich'], ['CH', 'Schweiz'], ['IT', 'Italien'],
-  ['FR', 'Frankreich'], ['ES', 'Spanien'], ['PT', 'Portugal'], ['NL', 'Niederlande'],
-  ['BE', 'Belgien'], ['LU', 'Luxemburg'], ['DK', 'Dänemark'], ['SE', 'Schweden'],
-  ['NO', 'Norwegen'], ['FI', 'Finnland'], ['PL', 'Polen'], ['CZ', 'Tschechien'],
-  ['HU', 'Ungarn'], ['GR', 'Griechenland'], ['HR', 'Kroatien'], ['TR', 'Türkei'],
-  ['GB', 'Vereinigtes Königreich'], ['IE', 'Irland'], ['US', 'Vereinigte Staaten'],
-  ['CA', 'Kanada'], ['MX', 'Mexiko'], ['BR', 'Brasilien'], ['AR', 'Argentinien'],
-  ['AE', 'Vereinigte Arabische Emirate'], ['QA', 'Katar'], ['SA', 'Saudi-Arabien'],
-  ['EG', 'Ägypten'], ['MA', 'Marokko'], ['ZA', 'Südafrika'], ['KE', 'Kenia'],
-  ['TH', 'Thailand'], ['VN', 'Vietnam'], ['SG', 'Singapur'], ['MY', 'Malaysia'],
-  ['ID', 'Indonesien'], ['PH', 'Philippinen'], ['JP', 'Japan'], ['KR', 'Südkorea'],
-  ['CN', 'China'], ['HK', 'Hongkong'], ['IN', 'Indien'], ['AU', 'Australien'],
-  ['NZ', 'Neuseeland'], ['MV', 'Malediven'], ['LK', 'Sri Lanka'],
+// Alle Länder nach ISO 3166. Die Namen holt der Browser selbst auf Deutsch,
+// so bleibt die Liste kurz und trotzdem vollständig.
+const COUNTRY_CODES = [
+  'AD', 'AE', 'AF', 'AG', 'AI', 'AL', 'AM', 'AO', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AW', 'AX', 'AZ', 'BA', 'BB',
+  'BD', 'BE', 'BF', 'BG', 'BH', 'BI', 'BJ', 'BL', 'BM', 'BN', 'BO', 'BQ', 'BR', 'BS', 'BT', 'BW', 'BY', 'BZ',
+  'CA', 'CC', 'CD', 'CF', 'CG', 'CH', 'CI', 'CK', 'CL', 'CM', 'CN', 'CO', 'CR', 'CU', 'CV', 'CW', 'CX', 'CY',
+  'CZ', 'DE', 'DJ', 'DK', 'DM', 'DO', 'DZ', 'EC', 'EE', 'EG', 'EH', 'ER', 'ES', 'ET', 'FI', 'FJ', 'FK', 'FM',
+  'FO', 'FR', 'GA', 'GB', 'GD', 'GE', 'GF', 'GG', 'GH', 'GI', 'GL', 'GM', 'GN', 'GP', 'GQ', 'GR', 'GS', 'GT',
+  'GU', 'GW', 'GY', 'HK', 'HN', 'HR', 'HT', 'HU', 'ID', 'IE', 'IL', 'IM', 'IN', 'IO', 'IQ', 'IR', 'IS', 'IT',
+  'JE', 'JM', 'JO', 'JP', 'KE', 'KG', 'KH', 'KI', 'KM', 'KN', 'KP', 'KR', 'KW', 'KY', 'KZ', 'LA', 'LB', 'LC',
+  'LI', 'LK', 'LR', 'LS', 'LT', 'LU', 'LV', 'LY', 'MA', 'MC', 'MD', 'ME', 'MF', 'MG', 'MH', 'MK', 'ML', 'MM',
+  'MN', 'MO', 'MP', 'MQ', 'MR', 'MS', 'MT', 'MU', 'MV', 'MW', 'MX', 'MY', 'MZ', 'NA', 'NC', 'NE', 'NF', 'NG',
+  'NI', 'NL', 'NO', 'NP', 'NR', 'NU', 'NZ', 'OM', 'PA', 'PE', 'PF', 'PG', 'PH', 'PK', 'PL', 'PM', 'PN', 'PR',
+  'PS', 'PT', 'PW', 'PY', 'QA', 'RE', 'RO', 'RS', 'RU', 'RW', 'SA', 'SB', 'SC', 'SD', 'SE', 'SG', 'SH', 'SI',
+  'SJ', 'SK', 'SL', 'SM', 'SN', 'SO', 'SR', 'SS', 'ST', 'SV', 'SX', 'SY', 'SZ', 'TC', 'TD', 'TF', 'TG', 'TH',
+  'TJ', 'TK', 'TL', 'TM', 'TN', 'TO', 'TR', 'TT', 'TV', 'TW', 'TZ', 'UA', 'UG', 'US', 'UY', 'UZ', 'VA', 'VC',
+  'VE', 'VG', 'VI', 'VN', 'VU', 'WF', 'WS', 'YE', 'YT', 'ZA', 'ZM', 'ZW',
 ];
+
+const COUNTRIES = (() => {
+  let names = null;
+  try {
+    names = new Intl.DisplayNames(['de'], { type: 'region' });
+  } catch { /* dann eben die Codes */ }
+
+  return COUNTRY_CODES
+    .map((code) => [code, (names && names.of(code)) || code])
+    .filter(([code, name]) => name && name !== code.toUpperCase() || !names)
+    .sort((a, b) => a[1].localeCompare(b[1], 'de'));
+})();
 
 /* ------------------------------------------------- Tolerante Namenssuche */
 

@@ -116,8 +116,13 @@ label { display: block; }
 .icon-btn {
   border: 1px solid var(--line); background: var(--card);
   border-radius: var(--r-sm); cursor: pointer;
-  width: 38px; height: 38px; font-size: 1.05rem; line-height: 1; flex: none;
+  width: 40px; height: 40px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ink-mid); padding: 0;
 }
+.icon-btn:hover { color: var(--ink); border-color: var(--ink-soft); }
+.icon-btn svg { width: 19px; height: 19px; }
+.btn-filter svg { width: 17px; height: 17px; margin-right: 7px; }
 .icon-btn.is-on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 
 .check-inline { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
@@ -248,7 +253,9 @@ body { padding-bottom: 0; }
 .chip-active button:hover { color: var(--down); }
 
 .list-head { margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; }
-.list-tools { display: flex; align-items: center; gap: 12px; }
+.list-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; }
+.list-tools .inline-select { font-size: .84rem; }
+.list-tools .inline-select select { min-height: 36px; max-width: 190px; }
 .stay-count { color: var(--ink-soft); font-size: .88rem; }
 
 /* -------------------------------------------------------- Aufenthalts-Card */
@@ -854,3 +861,54 @@ body.is-guest .drawer-body > .note { display: none; }
 .rows-head .sorted { color: var(--ink); font-weight: 700; }
 .rows-head .right button { margin-left: auto; }
 .rows-head .right { display: flex; }
+
+/* ---------------------------------------------------------------- Mobil */
+
+@media (max-width: 1080px) {
+  /* Suche in eine eigene Zeile, sonst quetscht sie Marke und Zahnrad */
+  .topbar-inner { flex-wrap: wrap; padding: 10px 16px; gap: 10px 12px; }
+  .brand { order: 1; }
+  .topbar-user { order: 2; margin-left: auto; }
+  .search-wrap { order: 3; flex: 1 1 100%; }
+  .brand .mark { width: 36px; height: 36px; }
+  .wordmark.small { font-size: 1.4rem; }
+}
+
+@media (max-width: 700px) {
+  .stay { padding: 15px 16px; border-radius: var(--r-md); }
+  .stay-hotel { font-size: 1rem; }
+  .stay-place, .stay-when { font-size: .82rem; }
+  .stay-price { font-size: .95rem; }
+  .badge { font-size: .74rem; padding: 3px 9px; }
+
+  .flow { padding: 12px 13px; margin-top: 12px; }
+  .flow-row { display: block; }
+  .flow-label { width: auto; display: block; margin-bottom: 2px; }
+  .flow-value { font-size: .95rem; }
+  .flow-mid { padding-left: 0; margin: 9px 0; font-size: .84rem; }
+
+  .pill { font-size: .76rem; padding: 3px 9px; }
+  .stay-foot { margin-top: 12px; padding-top: 10px; font-size: .8rem; }
+
+  /* Werkzeugleiste zweizeilig statt abgeschnitten */
+  .list-tools { gap: 8px 10px; }
+  .list-tools .stay-count { order: 5; flex: 1 1 100%; }
+  .list-tools .inline-select { flex: 1 1 auto; }
+  .list-tools .inline-select select { max-width: none; width: 100%; }
+  .view-toggle button { padding: 7px 11px; font-size: .82rem; }
+
+  .form-block, .hotel-card { padding: 16px; }
+  .view { padding: 14px 14px 20px; }
+  .hotel-title { font-size: 1.45rem; }
+  .stats-head h1 { font-size: 1.35rem; }
+  .stats-head { flex-wrap: wrap; gap: 10px; }
+
+  .kpi { padding: 13px 15px; }
+  .kpi .num { font-size: 1.4rem; }
+}
+
+/* Auf sehr schmalen Geräten die Trefferzahl vor die Werkzeuge */
+@media (max-width: 420px) {
+  .btn-filter { padding: 8px 11px; }
+  .step input, .step .options, .step .option { max-width: none; }
+}

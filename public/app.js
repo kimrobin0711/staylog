@@ -888,7 +888,9 @@ $('#detail-veil').addEventListener('click', closeDetail);
 
 function detailHead() {
   const head = el('div', 'detail-head');
-  const close = el('button', 'icon-btn', '×');
+  const close = el('button', 'icon-btn');
+  close.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    + 'stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 6 18 18M18 6 6 18"/></svg>';
   close.type = 'button';
   close.title = 'Schließen';
   close.setAttribute('aria-label', 'Schließen');

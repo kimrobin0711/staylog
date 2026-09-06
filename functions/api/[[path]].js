@@ -4,6 +4,7 @@
 //           GOOGLE_API_KEY (optional, fuer Bewertung und Bilder)
 // Vars:     OPEN_MODE = "read" (jeder darf schauen) oder "full" (jeder darf auch
 //           eintragen). Nicht gesetzt heisst: nur mit Passwort.
+//           ADMIN_EMAIL = Adresse, die den Verwaltungsbereich sehen darf.
 
 const UA = 'stayLOG/1.0 (persoenliches Hotel-Aufenthaltsbuch)';
 
@@ -54,6 +55,9 @@ function loginEmail(request) {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 const openMode = (env) => (env.OPEN_MODE || '').trim().toLowerCase();
+
+const isAdmin = (env, user) =>
+  Boolean(user?.email) && user.email === (env.ADMIN_EMAIL || '').trim().toLowerCase();
 
 // Gibt das Mitglied zurueck, einen Gast im offenen Betrieb, oder null.
 async function whoami(request, env) {
@@ -904,7 +908,13 @@ export async function onRequest(context) {
       if (Math.random() < 0.1) waitUntil(prune(env));
       let statuses = {};
       try { statuses = JSON.parse(user.statuses || '{}'); } catch { /* leer lassen */ }
-      return json({ name: user.name, email: user.email, statuses, mode: openMode(env) });
+      return json({
+        name: user.name,
+        email: user.email,
+        statuses,
+        mode: openMode(env),
+        is_admin: isAdmin(env, user),
+      });
     }
 
     // Erster Besuch: Name anlegen.
@@ -1521,6 +1531,54 @@ export async function onRequest(context) {
         },
         groups,
       });
+    }
+
+    // Alles loeschen. Verlangt Adminadresse, Adminpasswort und ein Bestaetigungswort.
+    if (path === '/admin/reset' && method === 'POST') {
+      if (!isAdmin(env, user)) return fail('Nur der Verwalter darf das', 403);
+
+      const admin = (env.ADMIN_PASSWORD || '').trim();
+      if (!admin) return fail('Es ist kein ADMIN_PASSWORD hinterlegt', 400);
+      if ((request.headers.get('x-stay-admin') || '').trim() !== admin) {
+        return fail('Das Adminpasswort stimmt nicht', 403);
+      }
+
+      const body = await request.json().catch(() => ({}));
+      if (body.confirm !== 'LOESCHEN') return fail('Bestätigungswort fehlt', 400);
+
+      const scope = body.scope === 'alles' ? 'alles' : 'aufenthalte';
+
+      // Bilder liegen ausserhalb der Datenbank und muessen einzeln weg.
+      const photos = await env.DB.prepare('SELECT key FROM photos').all();
+      for (const p of photos.results) {
+        try { await env.PHOTOS.delete(p.key); } catch { /* weiter */ }
+      }
+
+      const steps = [
+        env.DB.prepare('DELETE FROM photos'),
+        env.DB.prepare('DELETE FROM stays'),
+      ];
+      if (scope === 'alles') {
+        steps.push(env.DB.prepare('DELETE FROM room_types'));
+        steps.push(env.DB.prepare('DELETE FROM hotels'));
+      }
+      await env.DB.batch(steps);
+
+      waitUntil(logEvent(env, request, 'admin_reset', user.name, scope));
+      return json({ geloescht: scope, bilder: photos.results.length });
+    }
+
+    // Zaehlt, was ein Zuruecksetzen betreffen wuerde.
+    if (path === '/admin/summary' && method === 'GET') {
+      if (!isAdmin(env, user)) return fail('Nur der Verwalter darf das', 403);
+      const row = await env.DB.prepare(
+        `SELECT (SELECT COUNT(*) FROM stays) AS aufenthalte,
+                (SELECT COUNT(*) FROM hotels) AS hotels,
+                (SELECT COUNT(*) FROM room_types) AS kategorien,
+                (SELECT COUNT(*) FROM photos) AS bilder,
+                (SELECT COUNT(*) FROM members) AS mitglieder`
+      ).first();
+      return json(row);
     }
 
     if (path === '/me/status' && method === 'PUT') {

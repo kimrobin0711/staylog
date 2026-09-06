@@ -8,6 +8,9 @@ const el = (tag, cls, text) => {
   return n;
 };
 
+// Die eigene Fassung steht als Version im Skriptpfad.
+const MY_VERSION = (document.currentScript?.src || '').split('v=')[1] || '';
+
 const state = {
   pass: localStorage.getItem('staylog.pass') || '',
   me: localStorage.getItem('staylog.name') || '',
@@ -31,6 +34,7 @@ const state = {
   selected: null,
   guest: false,
   mode: '',
+  isAdmin: false,
   editing: null,
   view: localStorage.getItem('staylog.view') || 'cards',
   sort: { key: 'date', dir: 'desc' },
@@ -213,6 +217,7 @@ async function signIn(pass, login, name) {
   state.email = res.email || login;
   state.guest = Boolean(res.guest);
   state.mode = res.mode || '';
+  state.isAdmin = Boolean(res.is_admin);
   if (res.statuses && Object.keys(res.statuses).length) {
     state.myStatus = res.statuses;
     localStorage.setItem('staylog.status', JSON.stringify(state.myStatus));
@@ -297,6 +302,13 @@ $('#brand').addEventListener('click', () => showView('stays'));
 /* ---------------------------------------------------------- Einstellungen */
 
 function openSettings() {
+  $('#version-note').textContent = MY_VERSION
+    ? 'Fassung ' + MY_VERSION
+    : 'Fassung unbekannt';
+
+  $('#admin-block').hidden = !state.isAdmin;
+  if (state.isAdmin) loadAdminSummary();
+
   $('#account-who').textContent = state.guest
     ? 'Du bist als Gast unterwegs.'
     : 'Angemeldet als ' + state.me + (state.email ? ' · ' + state.email : '');
@@ -399,6 +411,58 @@ $('#settings-save').addEventListener('click', async () => {
   button.disabled = false;
   closeSettings();
 });
+
+async function loadAdminSummary() {
+  const box = $('#admin-summary');
+  box.textContent = 'Wird geladen …';
+  try {
+    const d = await api('/admin/summary');
+    box.textContent = d.aufenthalte + ' Aufenthalte · ' + d.hotels + ' Hotels · '
+      + d.kategorien + ' Zimmerkategorien · ' + d.bilder + ' Bilder · ' + d.mitglieder + ' Mitglieder';
+  } catch (e) {
+    box.textContent = e.message;
+  }
+}
+
+// Zwei Stufen: nur Aufenthalte, oder zusätzlich Hotels und Kategorien.
+async function adminReset(scope) {
+  const was = scope === 'alles'
+    ? 'ALLE Aufenthalte, Bilder, Hotels und Zimmerkategorien'
+    : 'alle Aufenthalte und Bilder';
+
+  if (!confirm('Wirklich ' + was + ' unwiderruflich löschen?\n\nMitglieder und Statuslevel bleiben erhalten.')) return;
+
+  const admin = prompt('Zur Sicherheit das Adminpasswort:');
+  if (!admin) return;
+
+  const word = prompt('Tipp zur Bestätigung: LOESCHEN');
+  if (word !== 'LOESCHEN') {
+    alert('Abgebrochen – das Bestätigungswort stimmte nicht.');
+    return;
+  }
+
+  const result = $('#admin-result');
+  result.hidden = false;
+  result.textContent = 'Wird gelöscht …';
+
+  try {
+    const res = await api('/admin/reset', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-stay-admin': admin },
+      body: JSON.stringify({ scope, confirm: 'LOESCHEN' }),
+    });
+    result.textContent = 'Gelöscht: ' + res.geloescht + ', dazu ' + res.bilder + ' Bilder.';
+    state.contextCache = {};
+    loadAdminSummary();
+    loadFilters();
+    loadStays();
+  } catch (e) {
+    result.textContent = e.message;
+  }
+}
+
+$('#admin-reset-stays').addEventListener('click', () => adminReset('aufenthalte'));
+$('#admin-reset-all').addEventListener('click', () => adminReset('alles'));
 
 $('#logout').addEventListener('click', () => {
   if (state.guest) { signOut(); return; }
@@ -2461,9 +2525,6 @@ start();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
 /* ------------------------------------------------- Neue Fassung erkennen */
-
-// Die eigene Fassung steht als Version im Skriptpfad.
-const MY_VERSION = (document.currentScript?.src || '').split('v=')[1] || '';
 
 $('#update-now').addEventListener('click', async () => {
   if ('serviceWorker' in navigator) {

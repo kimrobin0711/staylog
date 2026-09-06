@@ -72,8 +72,30 @@ OpenStreetMap ist kostenlos. Cloudflare D1 und R2 liegen bei diesem Volumen im F
 Die Claude API kostet 10 Dollar pro 1.000 Suchen plus Token, bei höchstens vier Suchen je
 Hotel und einem Aufruf pro Hotel. Zweihundert Hotels bleiben damit im einstelligen Bereich.
 
+## Variablen und Geheimnisse
+
+| Name | Art | Zweck |
+|---|---|---|
+| `STAY_PASSWORD` | Secret | gemeinsames Passwort der Runde |
+| `ADMIN_PASSWORD` | Secret | öffnet Protokoll und Verwaltung |
+| `ADMIN_EMAIL` | Text | Adresse, die den Verwaltungsbereich sieht |
+| `ANTHROPIC_API_KEY` | Secret | für die Zimmerrecherche |
+| `ANTHROPIC_MODEL` | Text | z. B. `claude-haiku-4-5-20251001` |
+| `WEB_SEARCH_TOOL` | Text | `web_search_20250305` |
+| `GOOGLE_API_KEY` | Secret | optional, Bewertung und Bilder |
+| `OPEN_MODE` | Text | `read` oder `full`, sonst leer lassen |
+
+## Veröffentlichen
+
+```powershell
+.\build.ps1
+```
+
+Das Skript vergibt eine Version, schreibt sie in `version.json`, in die Pfade von
+`app.js` und `styles.css` und in den Zwischenspeicher — dann lädt es hoch. Angemeldete
+Nutzer bekommen daraufhin oben eine Leiste mit dem Hinweis auf die neue Fassung.
+
 ## Später
 
-- Google Places als zweite Hotelquelle für Häuser, die OSM nicht kennt
-- Booking.com Demand API für die Zimmerkategorien, falls der Affiliate-Zugang kommt
-- öffentliche Nur-Lese-Ansicht zum Teilen, wie bei traveLOG
+- Aliase für Zimmerkategorien mit eigener Oberfläche
+- Booking.com Demand API als zusätzliche Quelle, falls der Affiliate-Zugang kommt

@@ -990,3 +990,35 @@ body.is-guest .drawer-body > .note { display: none; }
   .hotel-more > summary { display: block; }
   .hotel-more:not([open]) { padding-bottom: 2px; }
 }
+
+/* ------------------------------------------ Handbuch und Verwaltung */
+
+.drawer-block {
+  margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--line);
+}
+.drawer-block > summary {
+  cursor: pointer; list-style: none;
+  font-size: .95rem; font-weight: 600; padding: 2px 0;
+}
+.drawer-block > summary::-webkit-details-marker { display: none; }
+.drawer-block > summary::before { content: '▸ '; color: var(--ink-soft); font-weight: 400; }
+.drawer-block[open] > summary::before { content: '▾ '; }
+
+.manual { margin-top: 14px; }
+.manual h4 {
+  font-size: .86rem; font-weight: 600; color: var(--ink);
+  margin: 20px 0 6px;
+}
+.manual h4:first-child { margin-top: 0; }
+.manual p {
+  font-size: .88rem; color: var(--ink-mid); line-height: 1.55;
+  margin-bottom: 8px; max-width: 60ch;
+}
+.manual em { font-style: normal; font-weight: 600; color: var(--ink); }
+
+.admin-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+#admin-reset-all { border-color: var(--down); color: var(--down); }
+#admin-reset-all:hover { background: var(--down); color: var(--paper); }
+#admin-result { margin-top: 12px; }
+
+.version-note { margin-top: 16px; font-size: .8rem; color: var(--ink-soft); }

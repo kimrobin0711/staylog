@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=20260906-180534">
+<link rel="stylesheet" href="/styles.css?v=20260906-181209">
 </head>
 <body>
 
@@ -71,10 +71,62 @@
       <div id="status-settings" class="status-settings"></div>
       <button type="button" id="status-add" class="btn btn-quiet">Programm hinzufügen</button>
 
+      <details class="drawer-block">
+        <summary>Handbuch</summary>
+        <div class="manual">
+          <h4>Anmelden</h4>
+          <p>Beim ersten Mal gibst du E-Mail-Adresse, das gemeinsame Passwort und einen Namen ein. Der Name steht später unter deinen Einträgen und lässt sich nicht mehr ändern. Ab dem zweiten Mal reichen Adresse und Passwort, und das Gerät merkt sich beides.</p>
+
+          <h4>Aufenthalt eintragen</h4>
+          <p>Über <em>+ Aufenthalt</em> wählst du nacheinander Land, Stadt und Hotel. Die Hotelsuche verzeiht Tippfehler und fehlende Akzente, „le meriden“ findet also das Méridien.</p>
+          <p>Sobald ein Hotel zum ersten Mal angelegt wird, sucht stayLOG die Zimmerkategorien auf der offiziellen Hotelseite. Das dauert zwanzig bis vierzig Sekunden. Du kannst währenddessen alles andere ausfüllen oder mit <em>nicht warten</em> die allgemeine Liste der Marke nehmen. Beim nächsten Aufenthalt im selben Haus läuft die Suche nicht erneut.</p>
+
+          <h4>Gebucht und erhalten</h4>
+          <p>Das ist der Kern. Wähle oben, was du gebucht hattest, und darunter, was du tatsächlich bekommen hast. Die Upgrade-Stufe rechnet sich aus der Reihenfolge der Kategorien.</p>
+          <p>Steht der Hinweis, dass die Reihenfolge unsicher ist, ließ sie sich auf der Hotelseite nicht belegen. Klapp dann <em>Zimmerkategorien des Hotels</em> auf und sortier sie mit den Pfeilen. Ab dann gilt sie als geprüft, auch für alle anderen.</p>
+
+          <h4>Benefits</h4>
+          <p>Angeklickte Benefits werden dunkel. Wo ein Zusatzwert sinnvoll ist, erscheint darunter ein Feld: bei Late Checkout die Uhrzeit, bei F&amp;B Credit der Betrag, bei Welcome Gift die Beschreibung.</p>
+
+          <h4>Fotos</h4>
+          <p>Bilder ziehst du auf die Fläche oder wählst sie aus. Jedes Bild kann eine Beschreibung bekommen, lässt sich entfernen und mit den Pfeilen umsortieren. Die Bilder werden vor dem Hochladen verkleinert.</p>
+
+          <h4>Finden und ordnen</h4>
+          <p>Die Suche oben durchsucht Hotelnamen, Orte, Zimmerkategorien, Benefits und Erfahrungsberichte. Links filterst du nach Land, Stadt, Hotel, Programm, Status, Person und Zeitraum; aktive Filter stehen als Chips über der Liste und lassen sich einzeln wegklicken.</p>
+          <p>Über <em>Kacheln</em> und <em>Liste</em> schaltest du die Darstellung um. In der Liste sortierst du durch Klick auf eine Spaltenüberschrift. <em>Gruppiert nach</em> fasst die Einträge nach Land, Stadt, Hotel, Programm, Status, Person oder Jahr zusammen.</p>
+
+          <h4>Hotelseite</h4>
+          <p>Jeder Hotelname ist anklickbar. Dort siehst du, wie viele Leute dort waren, wie oft es ein Upgrade gab, welche Statuslevel was gebracht haben, die häufigsten Upgrade-Wege und alle Aufenthalte im Detail. Bei weniger als drei Meldungen zeigt stayLOG absichtlich keine Prozentzahlen.</p>
+
+          <h4>Auswertung</h4>
+          <p>Je Programm und Statuslevel: Upgradequote, Ø Kategorien, Anteil Suite-Upgrades, erhaltene Benefits, häufigste Upgrades und die besten Häuser. Oben rechts schaltest du zwischen der ganzen Runde und deinen eigenen Aufenthalten um.</p>
+
+          <h4>Statuslevel pflegen</h4>
+          <p>Oben in diesem Fenster trägst du je Programm deinen Status ein. Beim Eintragen wird er dann automatisch gesetzt. Die Angaben hängen an deiner Adresse und gelten auf allen Geräten.</p>
+
+          <h4>Ändern und teilen</h4>
+          <p>Ein Klick auf einen Aufenthalt öffnet die Detailansicht. Dort kannst du teilen — das erzeugt einen fertigen Textblock für die Gruppe — sowie eigene Einträge bearbeiten und löschen. Fremde Einträge kannst du nur ansehen.</p>
+
+          <h4>Auf dem Handy</h4>
+          <p>In Safari über den Teilen-Knopf <em>Zum Home-Bildschirm</em> wählen, dann liegt stayLOG als eigene App auf dem Startbild.</p>
+        </div>
+      </details>
+
+      <section id="admin-block" class="account" hidden>
+        <h3>Verwaltung</h3>
+        <p id="admin-summary" class="note"></p>
+        <div class="admin-actions">
+          <button type="button" id="admin-reset-stays" class="btn btn-quiet">Alle Aufenthalte löschen</button>
+          <button type="button" id="admin-reset-all" class="btn btn-quiet">Alles löschen</button>
+        </div>
+        <p id="admin-result" class="note" hidden></p>
+      </section>
+
       <section class="account">
         <h3>Konto</h3>
         <p id="account-who" class="note"></p>
         <button type="button" id="logout" class="btn btn-quiet">Abmelden</button>
+        <p id="version-note" class="note version-note"></p>
       </section>
     </div>
     <footer class="drawer-foot">
@@ -316,6 +368,6 @@
 
 </div>
 
-<script src="/app.js?v=20260906-180534"></script>
+<script src="/app.js?v=20260906-181209"></script>
 </body>
 </html>

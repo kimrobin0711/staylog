@@ -57,14 +57,23 @@
   </aside>
 
   <!-- Aufenthalte -->
-  <main id="view-stays" class="view">
-    <div class="filters" id="filters">
-      <select id="f-program"><option value="">Alle Programme</option></select>
-      <select id="f-author"><option value="">Alle Personen</option></select>
-      <select id="f-country"><option value="">Alle Länder</option></select>
-      <label class="check-inline"><input type="checkbox" id="f-upgraded"> nur mit Upgrade</label>
+  <main id="view-stays" class="view view-split">
+    <aside class="tree-pane">
+      <input type="search" id="f-text" placeholder="Suchen: Hotel, Zimmer, Notiz">
+      <button type="button" id="tree-all" class="tree-all">Alle Aufenthalte</button>
+      <nav id="tree" class="tree"></nav>
+    </aside>
+
+    <div class="stay-pane">
+      <div class="filters" id="filters">
+        <select id="f-program"><option value="">Alle Programme</option></select>
+        <select id="f-author"><option value="">Alle Personen</option></select>
+        <select id="f-status"><option value="">Alle Statuslevel</option></select>
+        <label class="check-inline"><input type="checkbox" id="f-upgraded"> nur mit Upgrade</label>
+      </div>
+      <p id="stay-count" class="stay-count"></p>
+      <div id="stay-list" class="stay-list"></div>
     </div>
-    <div id="stay-list" class="stay-list"></div>
   </main>
 
   <!-- Eintragen -->
@@ -100,6 +109,7 @@
           </div>
           <button type="button" id="chosen-reset" class="btn btn-quiet">ändern</button>
         </div>
+        <p id="chosen-rating" class="chosen-rating" hidden></p>
         <p id="chosen-desc" class="chosen-desc" hidden></p>
         <div id="chosen-links" class="chosen-links"></div>
         <div id="chosen-gallery" class="gallery"></div>

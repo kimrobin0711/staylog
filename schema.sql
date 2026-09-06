@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS hotels (
   address        TEXT,
   website        TEXT,
   description    TEXT,
+  google_place_id TEXT,
   enrich_status  TEXT NOT NULL DEFAULT 'pending',  -- pending | running | ready | failed
   enrich_error   TEXT,
   enriched_at    TEXT,

@@ -1,6 +1,7 @@
 // stayLOG – API. Laeuft als Cloudflare Pages Function unter /api/*
 // Bindings: DB (D1), PHOTOS (R2)
 // Secrets:  STAY_PASSWORD (gemeinsames Passwort), ADMIN_PASSWORD, ANTHROPIC_API_KEY
+//           GOOGLE_API_KEY (optional, fuer Bewertung und Bilder)
 
 const UA = 'stayLOG/1.0 (persoenliches Hotel-Aufenthaltsbuch)';
 
@@ -466,6 +467,68 @@ async function runEnrichment(env, hotelId) {
   }
 }
 
+/* ------------------------------------------------ Google Places (optional) */
+// Nur die Place-ID wird gespeichert. Bewertung und Bilder holen wir bei jedem
+// Aufruf frisch – Googles Bedingungen erlauben kein Zwischenspeichern.
+
+async function googlePlace(env, hotel) {
+  const key = env.GOOGLE_API_KEY;
+  if (!key) return null;
+
+  const fields = [
+    'places.id', 'places.displayName', 'places.formattedAddress', 'places.rating',
+    'places.userRatingCount', 'places.googleMapsUri', 'places.websiteUri', 'places.photos',
+  ].join(',');
+
+  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'X-Goog-Api-Key': key,
+      'X-Goog-FieldMask': fields,
+    },
+    body: JSON.stringify({
+      textQuery: [hotel.name, hotel.city, hotel.country].filter(Boolean).join(', '),
+      maxResultCount: 1,
+      languageCode: 'de',
+    }),
+  });
+  if (!res.ok) throw new Error('Google Places: ' + res.status);
+
+  const place = (await res.json()).places?.[0];
+  if (!place) return null;
+
+  const photos = [];
+  for (const photo of (place.photos || []).slice(0, 5)) {
+    try {
+      const media = await fetch(
+        'https://places.googleapis.com/v1/' + photo.name +
+        '/media?maxWidthPx=900&skipHttpRedirect=true&key=' + key
+      );
+      if (!media.ok) continue;
+      const body = await media.json();
+      if (body.photoUri) {
+        photos.push({
+          thumb: body.photoUri,
+          page: place.googleMapsUri || null,
+          author: (photo.authorAttributions || [])[0]?.displayName || null,
+          license: 'Google',
+        });
+      }
+    } catch { /* einzelnes Bild ueberspringen */ }
+  }
+
+  return {
+    place_id: place.id || null,
+    rating: place.rating ?? null,
+    rating_count: place.userRatingCount ?? null,
+    maps_uri: place.googleMapsUri || null,
+    website: place.websiteUri || null,
+    address: place.formattedAddress || null,
+    photos,
+  };
+}
+
 /* ------------------------------------- Bilder aus Wikimedia Commons */
 // Frei lizenziert, kein Schluessel noetig. Urheber und Lizenz kommen mit.
 
@@ -723,20 +786,31 @@ export async function onRequest(context) {
       }
 
       if (sub === '/images' && method === 'GET') {
-        const hotel = await env.DB.prepare('SELECT name, city, website FROM hotels WHERE id = ?')
-          .bind(hotelId).first();
+        const hotel = await env.DB.prepare(
+          'SELECT id, name, city, country, website, google_place_id FROM hotels WHERE id = ?'
+        ).bind(hotelId).first();
         if (!hotel) return fail('Hotel nicht gefunden', 404);
 
-        const [site, commons] = await Promise.all([
+        const [google, site, commons] = await Promise.all([
+          googlePlace(env, hotel).catch(() => null),
           siteImage(hotel.website),
           commonsImages(hotel.name).catch(() => []),
         ]);
 
-        let extra = [];
-        if (!commons.length && hotel.city) {
-          extra = await commonsImages(hotel.name + ' ' + hotel.city).catch(() => []);
+        if (google?.place_id && google.place_id !== hotel.google_place_id) {
+          waitUntil(env.DB.prepare('UPDATE hotels SET google_place_id = ? WHERE id = ?')
+            .bind(google.place_id, hotel.id).run());
         }
-        return json([site, ...commons, ...extra].filter(Boolean).slice(0, 6));
+
+        const photos = [...(google?.photos || []), site, ...commons].filter(Boolean).slice(0, 8);
+
+        return json({
+          photos,
+          rating: google?.rating ?? null,
+          rating_count: google?.rating_count ?? null,
+          maps_uri: google?.maps_uri || null,
+          google_aktiv: Boolean(env.GOOGLE_API_KEY),
+        });
       }
 
       if (sub === '/enrich' && method === 'POST') {
@@ -783,6 +857,14 @@ export async function onRequest(context) {
       add('s.status_level = ?', url.searchParams.get('status'));
       add('h.country_code = ?', url.searchParams.get('country'));
       add('h.city = ?', url.searchParams.get('city'));
+      if (url.searchParams.get('hotel')) {
+        where.push('h.id = ?');
+        bind.push(Number(url.searchParams.get('hotel')));
+      }
+      if (url.searchParams.get('land')) {
+        where.push('h.country = ?');
+        bind.push(url.searchParams.get('land'));
+      }
       if (url.searchParams.get('upgraded') === '1') where.push('s.upgrade_steps > 0');
 
       const rows = await env.DB.prepare(
@@ -873,6 +955,34 @@ export async function onRequest(context) {
     }
 
     /* ---- Auswertung ---- */
+
+    if (path === '/tree' && method === 'GET') {
+      const rows = await env.DB.prepare(
+        `SELECT h.country, h.country_code, h.city, h.id AS hotel_id, h.name AS hotel_name,
+                COUNT(s.id) AS stays
+           FROM stays s JOIN hotels h ON h.id = s.hotel_id
+          GROUP BY h.id
+          ORDER BY h.country, h.city, h.name`
+      ).all();
+
+      const tree = [];
+      for (const row of rows.results) {
+        let country = tree.find((c) => c.country === row.country);
+        if (!country) {
+          country = { country: row.country || 'ohne Land', country_code: row.country_code, stays: 0, cities: [] };
+          tree.push(country);
+        }
+        let city = country.cities.find((c) => c.city === row.city);
+        if (!city) {
+          city = { city: row.city || 'ohne Stadt', stays: 0, hotels: [] };
+          country.cities.push(city);
+        }
+        city.hotels.push({ id: row.hotel_id, name: row.hotel_name, stays: row.stays });
+        city.stays += row.stays;
+        country.stays += row.stays;
+      }
+      return json(tree);
+    }
 
     if (path === '/stats' && method === 'GET') {
       const byStatus = await env.DB.prepare(

@@ -25,6 +25,8 @@ const state = {
   addingStatus: false,
   draftStatus: {},
   nameHits: [],
+  stays: [],
+  pick: {},
 };
 
 /* ------------------------------------------------------------ Stammdaten */
@@ -181,6 +183,7 @@ async function signIn(pass, login, name) {
   $('#who').textContent = state.me;
   buildForm();
   loadStays();
+  loadTree();
 }
 
 $('#gate-go').addEventListener('click', async () => {
@@ -337,7 +340,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
       $('#view-' + name).hidden = name !== tab.dataset.view;
     }
     if (tab.dataset.view === 'stats') loadStats();
-    if (tab.dataset.view === 'stays') loadStays();
+    if (tab.dataset.view === 'stays') { loadStays(); loadTree(); }
   });
 });
 
@@ -570,25 +573,44 @@ function renderChosenHotel() {
 
 async function loadGallery() {
   const box = $('#chosen-gallery');
+  const rating = $('#chosen-rating');
   box.innerHTML = '';
+  rating.hidden = true;
+  document.querySelectorAll('.gallery-note').forEach((n) => n.remove());
   if (!state.hotel) return;
 
   try {
-    const images = await api('/hotels/' + state.hotel.id + '/images');
-    if (!images.length) return;
+    const data = await api('/hotels/' + state.hotel.id + '/images');
 
-    for (const img of images) {
+    if (data.rating != null) {
+      rating.innerHTML = '';
+      const full = Math.round(data.rating);
+      rating.appendChild(el('span', 'stars', '★'.repeat(full) + '☆'.repeat(5 - full)));
+      rating.appendChild(el('span', null, ' ' + data.rating.toFixed(1)));
+      if (data.rating_count) rating.appendChild(el('span', 'n', ' · ' + data.rating_count + ' Bewertungen bei Google'));
+      if (data.maps_uri) {
+        const a = el('a', null, ' ansehen');
+        a.href = data.maps_uri;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        rating.appendChild(a);
+      }
+      rating.hidden = false;
+    }
+
+    for (const img of data.photos || []) {
       const fig = document.createElement('figure');
       const image = document.createElement('img');
       image.src = img.thumb;
       image.alt = state.hotel.name;
       image.loading = 'lazy';
+      image.addEventListener('error', () => fig.remove());
       fig.appendChild(image);
 
       const credit = el('figcaption');
       const parts = [img.author, img.license].filter(Boolean).join(' · ');
       if (img.page) {
-        const a = el('a', null, parts || 'Wikimedia Commons');
+        const a = el('a', null, parts || 'Quelle');
         a.href = img.page;
         a.target = '_blank';
         a.rel = 'noopener';
@@ -599,8 +621,13 @@ async function loadGallery() {
       fig.appendChild(credit);
       box.appendChild(fig);
     }
-    box.insertAdjacentElement('afterend', el('p', 'gallery-note',
-      'Bilder aus Wikimedia Commons. Nicht jedes Haus ist dort zu finden.'));
+
+    if (!(data.photos || []).length) {
+      const note = el('p', 'gallery-note', data.google_aktiv
+        ? 'Zu diesem Haus wurden keine Bilder gefunden.'
+        : 'Ohne Google-Schlüssel gibt es meist keine Hotelbilder.');
+      box.insertAdjacentElement('afterend', note);
+    }
   } catch { /* ohne Bilder geht es auch */ }
 }
 
@@ -633,7 +660,6 @@ function renderRooms() {
   const adder = document.querySelector('.rooms-add');
   const st = state.hotel?.enrich_status;
   const busy = !state.skipEnrichment && (st === 'pending' || st === 'running');
-  if (busy) state.wasBusy = true;
 
   list.innerHTML = '';
   adder.hidden = busy;
@@ -665,10 +691,6 @@ function renderRooms() {
 
   const rooms = state.rooms.length ? state.rooms : fallbackRooms();
   const isFallback = state.rooms.length === 0;
-
-  // Wenn die Recherche gerade fertig wurde, einmal kurz zeigen was da ist.
-  if (state.wasBusy && !isFallback) $('#rooms-box').open = true;
-  state.wasBusy = false;
 
   if (isFallback) {
     status.textContent = 'allgemeine Liste der Marke – bitte anpassen';
@@ -790,9 +812,13 @@ function buildForm() {
 
   const fp = $('#f-program');
   for (const name of Object.keys(PROGRAMS)) fp.appendChild(new Option(name, name));
-  const fc = $('#f-country');
-  for (const [code, name] of COUNTRIES) fc.appendChild(new Option(name, code));
-  for (const id of ['#f-program', '#f-author', '#f-country']) $(id).addEventListener('change', loadStays);
+
+  const fs = $('#f-status');
+  const levels = new Set();
+  for (const info of Object.values(PROGRAMS)) for (const level of info.status) levels.add(level);
+  for (const level of [...levels].sort()) fs.appendChild(new Option(level, level));
+
+  for (const id of ['#f-program', '#f-author', '#f-status']) $(id).addEventListener('change', loadStays);
   $('#f-upgraded').addEventListener('change', loadStays);
 
   $('#s-checkin').valueAsDate = new Date();
@@ -884,14 +910,76 @@ $('#stay-form').addEventListener('submit', async (e) => {
   }
 });
 
+/* --------------------------------------------------------- Baumübersicht */
+
+async function loadTree() {
+  const box = $('#tree');
+  try {
+    const tree = await api('/tree');
+    box.innerHTML = '';
+    if (!tree.length) {
+      box.appendChild(el('p', 'tree-empty', 'Sobald Aufenthalte da sind, wächst hier der Baum.'));
+      return;
+    }
+
+    for (const country of tree) {
+      const details = document.createElement('details');
+      details.open = state.pick.land === country.country;
+
+      const summary = document.createElement('summary');
+      summary.appendChild(el('span', null, country.country));
+      summary.appendChild(el('span', 'n', String(country.stays)));
+      details.appendChild(summary);
+
+      for (const city of country.cities) {
+        const cityBox = document.createElement('details');
+        cityBox.className = 'city';
+        cityBox.open = state.pick.city === city.city;
+
+        const citySummary = document.createElement('summary');
+        citySummary.appendChild(el('span', null, city.city));
+        citySummary.appendChild(el('span', 'n', String(city.stays)));
+        cityBox.appendChild(citySummary);
+
+        for (const hotel of city.hotels) {
+          const button = el('button', 'tree-hotel' + (state.pick.hotel === hotel.id ? ' is-on' : ''));
+          button.type = 'button';
+          button.appendChild(el('span', null, hotel.name));
+          button.appendChild(el('span', 'n', String(hotel.stays)));
+          button.addEventListener('click', () => {
+            state.pick = { land: country.country, city: city.city, hotel: hotel.id };
+            loadTree();
+            loadStays();
+          });
+          cityBox.appendChild(button);
+        }
+        details.appendChild(cityBox);
+      }
+      box.appendChild(details);
+    }
+  } catch (e) {
+    box.innerHTML = '';
+    box.appendChild(el('p', 'tree-empty', e.message));
+  }
+}
+
+$('#tree-all').addEventListener('click', () => {
+  state.pick = {};
+  loadTree();
+  loadStays();
+});
+
+$('#f-text').addEventListener('input', debounce(() => renderStayList(), 200));
+
 /* ------------------------------------------------------ Aufenthalte zeigen */
 
 async function loadStays() {
   const params = new URLSearchParams();
   if ($('#f-program').value) params.set('program', $('#f-program').value);
   if ($('#f-author').value) params.set('author', $('#f-author').value);
-  if ($('#f-country').value) params.set('country', $('#f-country').value);
+  if ($('#f-status').value) params.set('status', $('#f-status').value);
   if ($('#f-upgraded').checked) params.set('upgraded', '1');
+  if (state.pick.hotel) params.set('hotel', String(state.pick.hotel));
 
   const box = $('#stay-list');
   try {
@@ -903,16 +991,40 @@ async function loadStays() {
     for (const p of people) fa.appendChild(new Option(p, p));
     fa.value = chosen;
 
-    box.innerHTML = '';
-    if (!stays.length) {
-      box.appendChild(el('p', 'empty', 'Noch nichts eingetragen. Fang mit deinem letzten Aufenthalt an.'));
-      return;
-    }
-    for (const s of stays) box.appendChild(renderStay(s));
+    state.stays = stays;
+    renderStayList();
   } catch (e) {
     box.innerHTML = '';
     box.appendChild(el('p', 'empty', e.message));
   }
+}
+
+// Freitextsuche laeuft auf den geladenen Aufenthalten, ohne neuen Abruf.
+function renderStayList() {
+  const box = $('#stay-list');
+  const q = $('#f-text').value.trim();
+  const list = q
+    ? state.stays.filter((s) => fuzzyMatch(
+        [s.hotel_name, s.city, s.booked_room, s.received_room, s.notes, (s.benefits || []).join(' ')]
+          .filter(Boolean).join(' '), q))
+    : state.stays;
+
+  const count = $('#stay-count');
+  if (state.pick.hotel || q) {
+    count.textContent = list.length + (list.length === 1 ? ' Aufenthalt' : ' Aufenthalte');
+    count.hidden = false;
+  } else {
+    count.hidden = true;
+  }
+
+  box.innerHTML = '';
+  if (!list.length) {
+    box.appendChild(el('p', 'empty', q
+      ? 'Nichts gefunden.'
+      : 'Noch nichts eingetragen. Fang mit deinem letzten Aufenthalt an.'));
+    return;
+  }
+  for (const s of list) box.appendChild(renderStay(s));
 }
 
 function renderStay(s) {
@@ -971,6 +1083,7 @@ function renderStay(s) {
       if (!confirm('Diesen Aufenthalt löschen?')) return;
       await api('/stays/' + s.id, { method: 'DELETE' });
       loadStays();
+      loadTree();
     });
     actions.appendChild(del);
   }

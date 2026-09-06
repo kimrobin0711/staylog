@@ -429,3 +429,56 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .gallery figcaption { font-size: 0.72rem; color: var(--ink-soft); margin-top: 4px; line-height: 1.3; }
 .gallery figcaption a { color: var(--ink-soft); }
 .gallery-note { font-size: 0.8rem; color: var(--ink-soft); margin: 10px 0 0; }
+
+/* ------------------------------------------------------- Baumuebersicht */
+
+.view-split { display: block; }
+.tree-pane { margin-bottom: 22px; }
+.tree-pane input[type=search] { margin-bottom: 10px; }
+
+.tree-all {
+  width: 100%; text-align: left; border: 0; background: none;
+  padding: 8px 6px; cursor: pointer; color: var(--ink-soft);
+  border-bottom: 1px solid var(--line); font: inherit; font-size: 0.9rem;
+}
+.tree-all.is-on { color: var(--ink); font-weight: 600; }
+
+.tree details { border-bottom: 1px solid var(--line); }
+.tree summary {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  padding: 9px 6px; cursor: pointer; list-style: none; font-size: 0.92rem;
+}
+.tree summary::-webkit-details-marker { display: none; }
+.tree summary::before { content: '▸'; color: var(--ink-soft); margin-right: 6px; }
+.tree details[open] > summary::before { content: '▾'; }
+.tree summary .n { color: var(--ink-soft); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.tree .city { padding-left: 14px; border-bottom: 0; }
+.tree .city > summary { font-size: 0.88rem; padding: 7px 6px; }
+
+.tree-hotel {
+  display: flex; justify-content: space-between; gap: 8px; width: 100%;
+  border: 0; background: none; cursor: pointer; font: inherit;
+  font-size: 0.86rem; text-align: left;
+  padding: 6px 6px 6px 32px; color: var(--ink-soft);
+}
+.tree-hotel:hover { color: var(--ink); }
+.tree-hotel.is-on { color: var(--ink); font-weight: 600; background: var(--card); border-radius: 6px; }
+.tree-empty { color: var(--ink-soft); font-size: 0.88rem; padding: 12px 6px; }
+
+.stay-count { color: var(--ink-soft); font-size: 0.88rem; margin: 0 0 14px; }
+
+.chosen-rating { margin: 10px 0 0; font-size: 0.92rem; }
+.chosen-rating .stars { color: var(--brass); letter-spacing: 1px; }
+.chosen-rating .n { color: var(--ink-soft); }
+
+@media (min-width: 980px) {
+  .view-split { display: grid; grid-template-columns: 260px 1fr; gap: 30px; align-items: start; }
+  .tree-pane {
+    position: sticky; top: 72px; margin-bottom: 0;
+    max-height: calc(100vh - 150px); overflow-y: auto;
+  }
+  .stay-list { grid-template-columns: 1fr 1fr; }
+}
+@media (min-width: 1400px) {
+  .stay-list { grid-template-columns: 1fr 1fr 1fr; }
+}

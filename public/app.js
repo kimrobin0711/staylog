@@ -677,6 +677,33 @@ function renderStayRow(s) {
   return row;
 }
 
+// Passende Hotels als eigener Vorschlag über der Liste.
+function renderHotelHits(q) {
+  const box = $('#hotel-hits');
+  box.innerHTML = '';
+  box.hidden = true;
+  if (!q || q.length < 2) return;
+
+  const seen = new Set();
+  const hits = [];
+  for (const p of state.places) {
+    if (seen.has(p.hotel_id)) continue;
+    if (!fuzzyMatch(p.hotel_name + ' ' + p.city, q)) continue;
+    seen.add(p.hotel_id);
+    hits.push(p);
+  }
+  if (!hits.length) return;
+
+  box.hidden = false;
+  box.appendChild(el('h4', null, 'HOTELS'));
+  for (const p of hits.slice(0, 5)) {
+    const row = el('div', 'hotel-hit');
+    row.appendChild(hotelLink(p.hotel_name, p.hotel_id));
+    row.appendChild(el('span', 'n', [p.city, p.country].filter(Boolean).join(', ')));
+    box.appendChild(row);
+  }
+}
+
 /* ---------------------------------------------------------------- Karten */
 
 function renderStayCard(s) {

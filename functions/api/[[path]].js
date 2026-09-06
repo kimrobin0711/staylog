@@ -258,14 +258,16 @@ out tags center 400;`;
   const out = [];
   for (const element of data.elements || []) {
     const tags = element.tags || {};
-    const name = tags.name;
+    // Lateinische Schreibweise bevorzugen, Original als Zusatz behalten.
+    const name = tags['name:en'] || tags['name:de'] || tags.int_name || tags.name;
     if (!name || seen.has(name.toLowerCase())) continue;
     seen.add(name.toLowerCase());
-    const brand = tags.brand || tags.operator || null;
+    const brand = tags['brand:en'] || tags.brand || tags.operator || null;
     out.push({
       source: 'osm',
       source_id: element.type + '/' + element.id,
       name,
+      local_name: tags.name && tags.name !== name ? tags.name : null,
       brand,
       program: guessProgram(brand) || guessProgram(name),
       lat: element.lat ?? element.center?.lat ?? null,
@@ -284,7 +286,7 @@ async function hotelsFromPhoton(q, lat, lon) {
   const url = new URL('https://photon.komoot.io/api/');
   url.searchParams.set('q', q);
   url.searchParams.set('limit', '20');
-  url.searchParams.set('lang', 'de');
+  url.searchParams.set('lang', 'en');   // liefert name:en, sonst stehen dort Schriftzeichen
   url.searchParams.append('osm_tag', 'tourism:hotel');
   if (lat && lon) {
     url.searchParams.set('lat', String(lat));
@@ -322,6 +324,7 @@ async function hotelsFromNominatim(q, lat, lon) {
   url.searchParams.set('format', 'jsonv2');
   url.searchParams.set('limit', '15');
   url.searchParams.set('extratags', '1');
+  url.searchParams.set('namedetails', '1');
   if (lat && lon) {
     const d = 0.4;
     url.searchParams.set('viewbox', [lon - d, lat + d, lon + d, lat - d].join(','));
@@ -336,11 +339,14 @@ async function hotelsFromNominatim(q, lat, lon) {
     .filter((r) => r.category === 'tourism' || r.type === 'hotel' || r.extratags?.tourism)
     .map((r) => {
       const brand = r.extratags?.brand || r.extratags?.operator || null;
-      const name = r.name || r.display_name.split(',')[0];
+      const names = r.namedetails || {};
+      const name = names['name:en'] || names['name:de'] || names.int_name
+        || r.name || r.display_name.split(',')[0];
       return {
         source: 'osm',
         source_id: (r.osm_type || 'node') + '/' + r.osm_id,
         name,
+        local_name: names.name && names.name !== name ? names.name : null,
         brand,
         program: guessProgram(brand) || guessProgram(name),
         lat: Number(r.lat),

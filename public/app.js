@@ -1161,7 +1161,13 @@ function renderHotelOptions(extra) {
   for (const h of merged.slice(0, 40)) {
     const b = el('button', 'option');
     b.type = 'button';
-    b.appendChild(el('span', null, h.name));
+    const label = el('span');
+    label.appendChild(document.createTextNode(h.name));
+    if (h.local_name) {
+      label.appendChild(document.createElement('br'));
+      label.appendChild(el('span', 'local-name', h.local_name));
+    }
+    b.appendChild(label);
     b.appendChild(el('small', null, h.program || h.brand || h.street || h.place || ''));
     b.addEventListener('click', () => chooseHotel(h));
     box.appendChild(b);

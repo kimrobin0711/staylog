@@ -124,7 +124,7 @@ label { display: block; }
   border-bottom: 1px solid var(--line);
 }
 .topbar-inner {
-  max-width: 1500px; margin: 0 auto;
+  max-width: 1560px; margin: 0 auto;
   display: flex; align-items: center; gap: 16px;
   padding: 13px 24px;
 }
@@ -154,7 +154,7 @@ label { display: block; }
 
 /* -------------------------------------------------------------- Schienen */
 
-.view { max-width: 1500px; margin: 0 auto; padding: 26px 24px 40px; }
+.view { max-width: 1560px; margin: 0 auto; padding: 26px 24px 40px; }
 body { padding-bottom: 0; }
 
 @media (max-width: 1080px) {
@@ -185,12 +185,12 @@ body { padding-bottom: 0; }
 @media (min-width: 1081px) {
   .workspace {
     display: grid;
-    grid-template-columns: 232px minmax(0, 1fr);
-    gap: 26px; align-items: start;
+    grid-template-columns: 248px minmax(0, 1fr);
+    gap: 28px; align-items: start;
   }
 }
 @media (min-width: 1320px) {
-  .workspace { grid-template-columns: 232px minmax(0, 1fr) 400px; }
+  .workspace { grid-template-columns: 248px minmax(0, 1fr) 420px; }
 }
 
 /* ---------------------------------------------------------------- Filter */
@@ -205,7 +205,9 @@ body { padding-bottom: 0; }
 .filter-fields { display: flex; flex-direction: column; gap: 12px; }
 .filter-fields label { font-size: .82rem; color: var(--ink-soft); }
 .filter-fields select, .filter-fields input[type=date] { margin-top: 4px; min-height: 38px; color: var(--ink); }
-.filter-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.filter-dates { display: grid; gap: 10px; }
+.filter-fields label, .filter-fields select, .filter-fields input { min-width: 0; }
+.filter-fields input[type=date] { padding-left: 10px; padding-right: 8px; }
 .filter-fields select:disabled { color: var(--ink-soft); background: var(--card-sunk); }
 
 @media (min-width: 1081px) {
@@ -246,9 +248,9 @@ body { padding-bottom: 0; }
 /* -------------------------------------------------------- Aufenthalts-Card */
 
 .stay-list { display: grid; gap: 14px; }
-@media (min-width: 700px) and (max-width: 1080px) { .stay-list { grid-template-columns: 1fr 1fr; } }
-@media (min-width: 1320px) { .stay-list { grid-template-columns: 1fr; } }
-@media (min-width: 1700px) { .stay-list { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 700px) and (max-width: 1319px) { .stay-list { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1320px) { .stay-list { grid-template-columns: 1fr; gap: 16px; } }
+@media (min-width: 2100px) { .stay-list { grid-template-columns: 1fr 1fr; } }
 
 .stay {
   position: relative; text-align: left; width: 100%;
@@ -708,3 +710,5 @@ body.is-guest .drawer-body > .note { display: none; }
 .hotel-hit:last-child { border-bottom: 0; }
 .hotel-hit .n { color: var(--ink-soft); font-size: .84rem; }
 .top-hotel .hotel-link { font-weight: 600; }
+
+.local-name { color: var(--ink-soft); font-size: .82rem; }

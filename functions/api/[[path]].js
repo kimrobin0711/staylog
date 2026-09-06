@@ -1589,6 +1589,17 @@ export async function onRequest(context) {
       return json({ gespeichert: true });
     }
 
+    if (path === '/log' && method === 'GET') {
+      const admin = (env.ADMIN_PASSWORD || '').trim();
+      if (!admin) return fail('Fuer das Protokoll ist kein ADMIN_PASSWORD gesetzt', 403);
+      if ((request.headers.get('x-stay-admin') || '').trim() !== admin) {
+        await logEvent(env, request, 'login_fail', user.name, 'Protokoll: falsches Adminpasswort');
+        return fail('Das Adminpasswort stimmt nicht', 403);
+      }
+      const rows = await env.DB.prepare('SELECT * FROM access_log ORDER BY id DESC LIMIT 300').all();
+      return json({ days: LOG_DAYS, entries: rows.results });
+    }
+
     if (path === '/people' && method === 'GET') {
       const rows = await env.DB.prepare('SELECT name FROM members ORDER BY name').all();
       return json(rows.results.map((r) => r.name));

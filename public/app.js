@@ -285,7 +285,10 @@ function showView(name) {
   // Nur unsichtbar schalten, nicht entfernen – sonst rutscht die Kopfzeile um.
   $('#f-text').closest('.search-wrap').classList.toggle('is-off', name !== 'stays');
   if (name !== 'hotel') state.hotelPage = null;
-  if (name === 'stats') loadStats();
+  if (name === 'stats') {
+    loadStats();
+    $('#log-open').closest('.log-section').hidden = !state.isAdmin;
+  }
   if (name === 'stays') { loadStays(); loadFilters(); }
   window.scrollTo({ top: 0 });
 }
@@ -2455,6 +2458,10 @@ const EVENT_TEXT = {
 };
 
 $('#log-open').addEventListener('click', async () => {
+  if (!state.isAdmin) {
+    $('#log-body').textContent = 'Das Protokoll ist dem Verwalter vorbehalten.';
+    return;
+  }
   const box = $('#log-body');
   const admin = prompt('Adminpasswort');
   if (!admin) return;

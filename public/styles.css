@@ -1075,3 +1075,22 @@ body.is-guest .drawer-body > .note { display: none; }
 #rooms-wait-slot { margin-top: 14px; }
 #rooms-wait-slot .rooms-wait { padding: 4px 0 12px; }
 #rooms-wait-slot .btn { margin-top: 2px; }
+
+/* Auswertung: Programmkarten aufklappbar */
+details.group-card > summary {
+  list-style: none; cursor: pointer;
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap;
+}
+details.group-card > summary::-webkit-details-marker { display: none; }
+details.group-card > summary::after {
+  content: '▸'; color: var(--ink-soft); margin-left: auto; font-size: .9rem;
+}
+details.group-card[open] > summary::after { content: '▾'; }
+details.group-card[open] > summary { margin-bottom: 4px; }
+
+@media (min-width: 701px) {
+  /* Auf breiten Schirmen ist alles offen, der Pfeil wäre nur Ablenkung. */
+  details.group-card > summary::after { display: none; }
+  details.group-card > summary { cursor: default; }
+}

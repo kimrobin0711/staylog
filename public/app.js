@@ -2538,16 +2538,27 @@ async function loadStats() {
       return;
     }
 
-    for (const g of data.groups) {
-      const card = el('div', 'group-card');
-      const head = el('div', 'group-head');
+    // Auf schmalen Schirmen zugeklappt, damit man die Programme überblickt.
+    const eng = window.innerWidth <= 700;
+
+    data.groups.forEach((g, index) => {
+      const card = document.createElement('details');
+      card.className = 'group-card';
+      card.open = !eng || index === 0;
+
+      const head = document.createElement('summary');
+      head.className = 'group-head';
       const title = el('div');
       title.appendChild(el('div', 'group-title', g.program));
       const badge = el('span', 'badge badge-status', g.status);
       badge.style.background = statusColor(g.status);
       title.appendChild(badge);
       head.appendChild(title);
-      head.appendChild(el('div', 'group-sub', g.stays + (g.stays === 1 ? ' Aufenthalt' : ' Aufenthalte')));
+
+      const meta = el('div', 'group-sub');
+      meta.textContent = g.stays + (g.stays === 1 ? ' Aufenthalt' : ' Aufenthalte')
+        + (g.upgrade_quote != null ? ' · ' + g.upgrade_quote + ' % Upgrade' : '');
+      head.appendChild(meta);
       card.appendChild(head);
 
       const grid = el('div', 'group-grid');
@@ -2615,7 +2626,7 @@ async function loadStats() {
 
       card.appendChild(grid);
       box.appendChild(card);
-    }
+    });
   } catch (e) {
     box.innerHTML = '';
     box.appendChild(el('p', 'empty', e.message));

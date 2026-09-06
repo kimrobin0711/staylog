@@ -451,7 +451,7 @@ async function enrichHotel(env, hotel) {
     },
     body: JSON.stringify({
       model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-      max_tokens: 1500,
+      max_tokens: 8000,
       messages: [{ role: 'user', content: ENRICH_PROMPT(hotel) }],
       tools: [{ type: env.WEB_SEARCH_TOOL || 'web_search_20250305', name: 'web_search', max_uses: 5 }],
     }),
@@ -466,10 +466,53 @@ async function enrichHotel(env, hotel) {
     .join('\n')
     .trim();
 
+  // Fuer die Diagnose: was hat das Modell wirklich getan?
+  const blocks = (data.content || []).map((b) => b.type);
+  const searches = (data.content || []).filter((b) => b.type === 'server_tool_use').length;
+  const queries = (data.content || [])
+    .filter((b) => b.type === 'server_tool_use')
+    .map((b) => b.input?.query)
+    .filter(Boolean);
+
+  const diagnose = { blocks, searches, queries, stop: data.stop_reason, text: text.slice(0, 600) };
+
   const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new Error('Keine verwertbare Antwort erhalten');
-  return JSON.parse(text.slice(start, end + 1));
+  if (start === -1) {
+    const err = new Error('Keine verwertbare Antwort erhalten');
+    err.diagnose = diagnose;
+    throw err;
+  }
+
+  const parsed = parseLoose(text.slice(start));
+  if (!parsed) {
+    const err = new Error('Antwort liess sich nicht einlesen');
+    err.diagnose = diagnose;
+    throw err;
+  }
+  parsed._diagnose = diagnose;
+  return parsed;
+}
+
+// Bricht die Antwort mitten in der Kategorienliste ab, schneiden wir hinter dem
+// letzten vollstaendigen Eintrag ab und schliessen die Klammern selbst.
+function parseLoose(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch { /* dann reparieren */ }
+
+  const suffixes = [']}', '"}]}', '}]}', '"}}', '}}', '}'];
+  let cut = raw.lastIndexOf('}');
+  for (let attempts = 0; cut > 0 && attempts < 40; attempts += 1) {
+    const head = raw.slice(0, cut + 1);
+    for (const suffix of suffixes) {
+      try {
+        const value = JSON.parse(head + suffix);
+        if (value && typeof value === 'object') return value;
+      } catch { /* naechster Versuch */ }
+    }
+    cut = raw.lastIndexOf('}', cut - 1);
+  }
+  return null;
 }
 
 // Ein Lauf gilt als steckengeblieben, wenn er ohne Startzeit dasteht (Rest aus
@@ -513,9 +556,11 @@ async function runEnrichment(env, hotelId) {
            description = COALESCE(?, description)
          WHERE id = ?`
       ).bind(
-        result.found
+        (result.found
           ? 'Hotel gefunden, aber keine Zimmerkategorien'
-          : 'Das Haus liess sich nicht eindeutig zuordnen',
+          : 'Das Haus liess sich nicht eindeutig zuordnen')
+          + ' (' + (result._diagnose?.searches ?? 0) + ' Suchen, Stopp: '
+          + (result._diagnose?.stop || 'unbekannt') + ')',
         stamp,
         result.chain || null, result.brand || null, result.program || null,
         result.lounge === true ? 1 : result.lounge === false ? 0 : null,
@@ -1091,6 +1136,30 @@ export async function onRequest(context) {
           pairs: [...pairs.values()].sort((a, b) => b.count - a.count).slice(0, 10),
           recent: await withDetails(env, stays.slice(0, 6)),
         });
+      }
+
+      if (sub === '/enrich' && method === 'POST' && url.searchParams.get('debug') === '1') {
+        const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
+        if (!hotel) return fail('Hotel nicht gefunden', 404);
+        try {
+          const result = await enrichHotel(env, hotel);
+          return json({
+            modell: env.ANTHROPIC_MODEL || 'claude-sonnet-4-6 (Vorgabe)',
+            werkzeug: env.WEB_SEARCH_TOOL || 'web_search_20250305 (Vorgabe)',
+            gefunden: result.found,
+            anzahl_kategorien: (result.rooms || []).length,
+            webseite: result.website || null,
+            adresse: result.address || null,
+            diagnose: result._diagnose,
+          });
+        } catch (err) {
+          return json({
+            modell: env.ANTHROPIC_MODEL || 'claude-sonnet-4-6 (Vorgabe)',
+            werkzeug: env.WEB_SEARCH_TOOL || 'web_search_20250305 (Vorgabe)',
+            fehler: String(err.message || err),
+            diagnose: err.diagnose || null,
+          });
+        }
       }
 
       if (sub === '/enrich' && method === 'POST') {

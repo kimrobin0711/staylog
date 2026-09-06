@@ -1448,12 +1448,12 @@ export async function onRequest(context) {
     // Werte fuer die abhaengigen Filter, jeweils nur was wirklich vorkommt.
     if (path === '/filters' && method === 'GET') {
       const rows = await env.DB.prepare(
-        `SELECT DISTINCT h.country, h.country_code, h.city, h.id AS hotel_id, h.name AS hotel_name,
+        `SELECT h.country, h.country_code, h.city, h.id AS hotel_id, h.name AS hotel_name,
                 s.program, s.status_level, s.author
            FROM stays s JOIN hotels h ON h.id = s.hotel_id`
       ).all();
 
-      const places = [];
+      const byHotel = new Map();
       const programs = new Set();
       const statuses = new Set();
       const people = new Set();
@@ -1462,13 +1462,28 @@ export async function onRequest(context) {
         if (r.program) programs.add(r.program);
         if (r.status_level) statuses.add(r.status_level);
         if (r.author) people.add(r.author);
-        places.push({
+
+        const entry = byHotel.get(r.hotel_id) || {
           country: r.country || 'ohne Land',
           city: r.city || 'ohne Stadt',
           hotel_id: r.hotel_id,
           hotel_name: r.hotel_name,
-        });
+          stays: 0,
+          people: new Set(),
+        };
+        entry.stays += 1;
+        if (r.author) entry.people.add(r.author);
+        byHotel.set(r.hotel_id, entry);
       }
+
+      const places = [...byHotel.values()].map((e) => ({
+        country: e.country,
+        city: e.city,
+        hotel_id: e.hotel_id,
+        hotel_name: e.hotel_name,
+        stays: e.stays,
+        people: e.people.size,
+      }));
       const allPeople = await env.DB.prepare('SELECT name FROM members ORDER BY name').all();
       for (const m of allPeople.results) people.add(m.name);
 

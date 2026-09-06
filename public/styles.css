@@ -1029,3 +1029,45 @@ body.is-guest .drawer-body > .note { display: none; }
 .hotel-gallery-slot .gallery { margin-top: 0; }
 #detail-context .hotel-gallery-slot .gallery figure { width: 150px; }
 #detail-context .hotel-gallery-slot .gallery img { width: 150px; height: 100px; }
+
+/* -------------------------------------- Warteanimation: Schlüsselkarte */
+
+.keycard { flex: none; width: 64px; height: 44px; display: block; }
+.keycard svg { width: 64px; height: 44px; overflow: visible; }
+
+.keycard .reader { fill: none; stroke: var(--line); stroke-width: 2.2; }
+.keycard .slot { fill: var(--line); }
+.keycard .card { fill: var(--ink); }
+.keycard .stripe { fill: var(--gold-lite); }
+.keycard .led { fill: var(--line); }
+
+.keycard .card, .keycard .stripe { animation: karte 2.8s ease-in-out infinite; }
+.keycard .led { animation: lampe 2.8s ease-in-out infinite; }
+
+@keyframes karte {
+  0%, 8%   { transform: translateX(0); opacity: 1; }
+  38%, 52% { transform: translateX(22px); opacity: 1; }
+  70%      { transform: translateX(0); opacity: 1; }
+  100%     { transform: translateX(0); opacity: 1; }
+}
+@keyframes lampe {
+  0%, 40%  { fill: var(--line); }
+  45%, 60% { fill: var(--gold); }
+  65%,100% { fill: var(--line); }
+}
+
+.rooms-step { font-weight: 500; }
+.rooms-wait { align-items: center; gap: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .keycard .card, .keycard .stripe, .keycard .led { animation: none; }
+  .keycard .led { fill: var(--gold); }
+}
+
+/* Hinweis auf weitere Aufenthalte im selben Haus */
+.stay-more {
+  display: inline-block; margin-top: 12px;
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; font-size: .82rem; color: var(--gold);
+}
+.stay-more:hover { text-decoration: underline; }

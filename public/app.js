@@ -565,7 +565,10 @@ function refreshPlaceSelects() {
     if (city && p.city !== city) continue;
     if (seen.has(p.hotel_id)) continue;
     seen.add(p.hotel_id);
-    hotels.push({ value: String(p.hotel_id), label: p.hotel_name });
+    hotels.push({
+      value: String(p.hotel_id),
+      label: p.hotel_name + (p.stays > 1 ? '  (' + p.stays + ')' : ''),
+    });
   }
   hotels.sort((a, b) => a.label.localeCompare(b.label));
   fillSelect($('#f-hotel'), hotels, 'Alle Hotels');
@@ -911,6 +914,16 @@ function renderStayCard(s) {
     card.appendChild(pills);
   }
 
+  const info = hotelCount(s.hotel_id);
+  if (info && info.stays > 1) {
+    const more = el('button', 'stay-more');
+    more.type = 'button';
+    more.textContent = info.stays + ' Aufenthalte hier'
+      + (info.people > 1 ? ' · ' + info.people + ' Personen' : '');
+    more.addEventListener('click', (e) => { e.stopPropagation(); showHotel(s.hotel_id); });
+    card.appendChild(more);
+  }
+
   const foot = el('div', 'stay-foot');
   const author = el('span', 'stay-author');
   author.appendChild(el('span', 'avatar', initials(s.author)));
@@ -973,6 +986,11 @@ function hotelLink(name, hotelId, cls) {
   button.title = 'Hotelseite öffnen';
   button.addEventListener('click', (e) => { e.stopPropagation(); showHotel(hotelId); });
   return button;
+}
+
+// Wie oft wurde dieses Haus insgesamt gemeldet?
+function hotelCount(hotelId) {
+  return state.places.find((p) => p.hotel_id === hotelId) || null;
 }
 
 const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
@@ -1732,7 +1750,7 @@ async function runEnrichment() {
   state.pollTimer = setInterval(() => {
     if (state.hotel?.id === hotelId && state.hotel.enrich_status === 'running') renderRooms();
     else clearInterval(state.pollTimer);
-  }, 5000);
+  }, 4000);
 
   try {
     const res = await api('/hotels/' + hotelId + '/enrich?wait=1', { method: 'POST' });
@@ -1959,7 +1977,7 @@ function renderRooms() {
     status.textContent = state.pollGaveUp ? 'abgebrochen' : 'läuft …';
 
     const wait = el('div', 'rooms-wait');
-    if (!state.pollGaveUp) wait.appendChild(el('span', 'spinner'));
+    if (!state.pollGaveUp) wait.appendChild(keycardAnimation());
     const texts = el('div');
 
     if (state.pollGaveUp) {
@@ -1967,7 +1985,9 @@ function renderRooms() {
       texts.appendChild(el('div', 'rooms-wait-note',
         'Trag die Kategorien unten selbst ein oder versuch es später noch einmal.'));
     } else {
-      texts.appendChild(el('div', null, 'Zimmerkategorien werden auf der Hotelwebseite recherchiert …'));
+      const line = el('div', 'rooms-step');
+      line.textContent = waitingLine(seconds);
+      texts.appendChild(line);
       texts.appendChild(el('div', 'rooms-wait-note',
         seconds > 45
           ? 'Dauert bei diesem Haus länger als üblich (' + seconds + ' Sekunden). Du kannst jederzeit selbst eintragen.'
@@ -2109,6 +2129,27 @@ $('#rooms-refresh').addEventListener('click', () => {
   state.skipEnrichment = false;
   runEnrichment();
 });
+
+// Schlüsselkarte, die immer wieder in den Türleser gleitet.
+function keycardAnimation() {
+  const box = el('span', 'keycard');
+  box.innerHTML = '<svg viewBox="0 0 64 44" aria-hidden="true">'
+    + '<rect class="reader" x="30" y="4" width="30" height="36" rx="5"/>'
+    + '<rect class="slot" x="34" y="12" width="22" height="3" rx="1.5"/>'
+    + '<circle class="led" cx="45" cy="32" r="3"/>'
+    + '<rect class="card" x="2" y="14" width="26" height="17" rx="2.5"/>'
+    + '<rect class="stripe" x="5" y="18" width="12" height="2.4" rx="1.2"/>'
+    + '</svg>';
+  return box;
+}
+
+// Was gerade wirklich passiert – die Schritte laufen der Reihe nach.
+function waitingLine(seconds) {
+  if (seconds < 12) return 'Die offizielle Hotelseite wird gesucht …';
+  if (seconds < 28) return 'Die Zimmerseite des Hauses wird gelesen …';
+  if (seconds < 45) return 'Kategorien werden erfasst und sortiert …';
+  return 'Fast fertig – das Haus macht es uns schwer …';
+}
 
 function fillRoomSelects(rooms, placeholder) {
   for (const id of ['#s-booked', '#s-received']) {

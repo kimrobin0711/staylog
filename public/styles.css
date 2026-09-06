@@ -142,6 +142,7 @@ label { display: block; }
   padding: 11px 24px;
 }
 .search-wrap { flex: 1; max-width: 420px; }
+.search-wrap.is-off { visibility: hidden; }
 .search-wrap input { min-height: 40px; background: var(--card-sunk); border-color: transparent; }
 .search-wrap input:focus { background: var(--card); border-color: var(--line); }
 

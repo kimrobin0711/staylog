@@ -262,7 +262,8 @@ function showView(name) {
   for (const view of ['stays', 'new', 'stats', 'hotel']) $('#view-' + view).hidden = view !== name;
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-on', t.dataset.view === name));
   document.querySelectorAll('.topnav-btn').forEach((t) => t.classList.toggle('is-on', t.dataset.view === name));
-  $('#f-text').closest('.search-wrap').hidden = name !== 'stays';
+  // Nur unsichtbar schalten, nicht entfernen – sonst rutscht die Kopfzeile um.
+  $('#f-text').closest('.search-wrap').classList.toggle('is-off', name !== 'stays');
   if (name !== 'hotel') state.hotelPage = null;
   if (name === 'stats') loadStats();
   if (name === 'stays') { loadStays(); loadFilters(); }

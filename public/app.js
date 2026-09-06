@@ -2541,10 +2541,10 @@ async function loadStats() {
     // Auf schmalen Schirmen zugeklappt, damit man die Programme überblickt.
     const eng = window.innerWidth <= 700;
 
-    data.groups.forEach((g, index) => {
+    data.groups.forEach((g) => {
       const card = document.createElement('details');
       card.className = 'group-card';
-      card.open = !eng || index === 0;
+      card.open = !eng;   // auf dem Handy alles zu, auf breiten Schirmen offen
 
       const head = document.createElement('summary');
       head.className = 'group-head';

@@ -2,6 +2,8 @@
 // Bindings: DB (D1), PHOTOS (R2)
 // Secrets:  STAY_PASSWORD (gemeinsames Passwort), ADMIN_PASSWORD, ANTHROPIC_API_KEY
 //           GOOGLE_API_KEY (optional, fuer Bewertung und Bilder)
+// Vars:     OPEN_MODE = "read" (jeder darf schauen) oder "full" (jeder darf auch
+//           eintragen). Nicht gesetzt heisst: nur mit Passwort.
 
 const UA = 'stayLOG/1.0 (persoenliches Hotel-Aufenthaltsbuch)';
 
@@ -51,9 +53,17 @@ function loginEmail(request) {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-// Gibt das Mitglied zurueck, oder null wenn Passwort, Adresse oder Konto fehlen.
+const openMode = (env) => (env.OPEN_MODE || '').trim().toLowerCase();
+
+// Gibt das Mitglied zurueck, einen Gast im offenen Betrieb, oder null.
 async function whoami(request, env) {
-  if (!passwordOk(request, env)) return null;
+  if (!passwordOk(request, env)) {
+    const mode = openMode(env);
+    if (mode === 'read' || mode === 'full') {
+      return { email: null, name: 'Gast', guest: true, mode };
+    }
+    return null;
+  }
   const email = loginEmail(request);
   if (!email || !EMAIL_RE.test(email)) return null;
 
@@ -672,6 +682,11 @@ export async function onRequest(context) {
     }
 
     if (!passwordOk(request, env)) {
+      const mode = openMode(env);
+      const anonymous = !(request.headers.get('x-stay-pass') || '').trim();
+      if (anonymous && (mode === 'read' || mode === 'full')) {
+        return json({ name: 'Gast', email: null, statuses: {}, guest: true, mode });
+      }
       await logEvent(env, request, 'login_fail', null, 'falsches Passwort');
       return fail('Das Passwort stimmt nicht', 401);
     }
@@ -684,7 +699,7 @@ export async function onRequest(context) {
       if (Math.random() < 0.1) waitUntil(prune(env));
       let statuses = {};
       try { statuses = JSON.parse(user.statuses || '{}'); } catch { /* leer lassen */ }
-      return json({ name: user.name, email: user.email, statuses });
+      return json({ name: user.name, email: user.email, statuses, mode: openMode(env) });
     }
 
     // Erster Besuch: Name anlegen.
@@ -708,6 +723,11 @@ export async function onRequest(context) {
   }
 
   if (!user) return fail('Bitte anmelden', 401);
+
+  // Gaeste duerfen nur schauen, solange OPEN_MODE nicht auf "full" steht.
+  if (user.guest && user.mode !== 'full' && method !== 'GET') {
+    return fail('In der Gastansicht kannst du nur schauen. Melde dich an, um etwas einzutragen.', 403);
+  }
 
   try {
     /* ---- Orte und Hotels suchen ---- */
@@ -1149,6 +1169,14 @@ export async function onRequest(context) {
         },
         groups,
       });
+    }
+
+    if (path === '/me/status' && method === 'PUT') {
+      if (user.guest) return fail('Dafür musst du angemeldet sein', 403);
+      const body = await request.json();
+      await env.DB.prepare('UPDATE members SET statuses = ?, updated_at = ? WHERE email = ?')
+        .bind(JSON.stringify(body.statuses || {}), now(), user.email).run();
+      return json({ gespeichert: true });
     }
 
     if (path === '/people' && method === 'GET') {

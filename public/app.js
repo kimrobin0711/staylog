@@ -29,6 +29,8 @@ const state = {
   stays: [],
   places: [],
   selected: null,
+  guest: false,
+  mode: '',
 };
 
 /* ------------------------------------------------------------ Stammdaten */
@@ -186,6 +188,8 @@ async function signIn(pass, login, name) {
 
   state.me = res.name;
   state.email = res.email || login;
+  state.guest = Boolean(res.guest);
+  state.mode = res.mode || '';
   if (res.statuses && Object.keys(res.statuses).length) {
     state.myStatus = res.statuses;
     localStorage.setItem('staylog.status', JSON.stringify(state.myStatus));
@@ -197,6 +201,16 @@ async function signIn(pass, login, name) {
   $('#gate').hidden = true;
   $('#app').hidden = false;
   $('#who').textContent = state.me;
+
+  document.body.classList.toggle('is-guest', state.guest && state.mode !== 'full');
+  const bar = $('#guest-bar');
+  bar.hidden = !state.guest;
+  if (state.guest) {
+    $('#guest-text').textContent = state.mode === 'full'
+      ? 'Offener Betrieb – jeder kann eintragen. Deine Einträge stehen unter „Gast“.'
+      : 'Gastansicht – du kannst alles ansehen, aber nichts eintragen.';
+  }
+
   buildForm();
   loadFilters();
   loadStays();
@@ -215,6 +229,12 @@ $('#gate-go').addEventListener('click', async () => {
 for (const id of ['#gate-key', '#gate-email', '#gate-name']) {
   $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#gate-go').click(); });
 }
+
+$('#guest-login').addEventListener('click', () => {
+  localStorage.removeItem('staylog.pass');
+  localStorage.removeItem('staylog.email');
+  location.reload();
+});
 
 $('#who').addEventListener('click', () => {
   if (!confirm('Abmelden und Passwort auf diesem Gerät vergessen?')) return;
@@ -1583,5 +1603,8 @@ if (state.pass && state.email) {
     localStorage.removeItem('staylog.pass');
     $('#gate-email').value = state.email || '';
   });
+} else {
+  // Ohne Zugangsdaten schauen, ob die Seite gerade offen steht.
+  signIn('', '').catch(() => { /* dann bleibt die Anmeldemaske stehen */ });
 }
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

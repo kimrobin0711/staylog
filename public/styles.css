@@ -588,3 +588,17 @@ td.wrap { white-space: normal; }
   .drawer, .veil, .filter-pane { transition-duration: .01s; }
   .spinner { animation-duration: 3s; }
 }
+
+/* ---------------------------------------------------------- Gastansicht */
+
+.guest-bar {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  flex-wrap: wrap;
+  background: var(--gold-wash); border-bottom: 1px solid #EBDFC2;
+  color: #6E5518; font-size: .9rem;
+  padding: 10px 24px;
+}
+body.is-guest .btn-new,
+body.is-guest .tab-primary,
+body.is-guest #settings-toggle,
+body.is-guest #who { display: none; }

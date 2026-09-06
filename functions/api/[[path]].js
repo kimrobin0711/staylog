@@ -384,8 +384,8 @@ Vorgehen:
 1. Finde zuerst die offizielle Webseite genau dieses Hauses (nicht die Startseite der Kette).
 2. Lies dort die Seite mit den Zimmern und Suiten und uebernimm die Kategorienamen exakt so,
    wie das Hotel sie schreibt.
-3. Nur wenn die offizielle Seite nicht erreichbar ist, weiche auf grosse Buchungsportale aus
-   und vermerke das in "source".
+3. Findest du dort keine Zimmerliste, nutze grosse Buchungsportale, Hotelbewertungsseiten
+   oder Reiseblogs und vermerke die Quelle. Eine unvollstaendige Liste ist besser als keine.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown, ohne Vor- oder Nachtext:
 
@@ -429,7 +429,13 @@ Weitere Regeln:
 - "type" ist "room" oder "suite".
 - Optionale Felder duerfen null sein. Erfinde nichts, um sie zu fuellen.
 - Jede Kategorie braucht die Quell-URL, aus der sie stammt.
-- Findest du das Hotel nicht sicher, antworte {"found": false, "rooms": []}.`;
+
+Wann "found" auf true steht:
+- Sobald du das Haus zweifelsfrei identifiziert hast, setze "found": true – auch dann, wenn
+  du nur wenige oder gar keine Zimmerkategorien findest. Gib in dem Fall Adresse, Webseite
+  und Beschreibung an und lasse "rooms" leer oder unvollstaendig.
+- "found": false gilt nur, wenn du nicht sicher bist, WELCHES Haus gemeint ist, etwa weil
+  es in der Stadt mehrere Haeuser dieser Marke gibt und der Name nicht eindeutig ist.`;
 
 async function enrichHotel(env, hotel) {
   const key = env.ANTHROPIC_API_KEY;
@@ -447,7 +453,7 @@ async function enrichHotel(env, hotel) {
       model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
       max_tokens: 1500,
       messages: [{ role: 'user', content: ENRICH_PROMPT(hotel) }],
-      tools: [{ type: env.WEB_SEARCH_TOOL || 'web_search_20250305', name: 'web_search', max_uses: 3 }],
+      tools: [{ type: env.WEB_SEARCH_TOOL || 'web_search_20250305', name: 'web_search', max_uses: 5 }],
     }),
   });
 
@@ -494,15 +500,34 @@ async function runEnrichment(env, hotelId) {
     const result = await enrichHotel(env, hotel);
     const stamp = now();
 
-    if (!result.found || !Array.isArray(result.rooms) || result.rooms.length === 0) {
+    const rooms = Array.isArray(result.rooms) ? result.rooms : [];
+
+    // Auch ohne Zimmerliste sind Adresse, Webseite und Beschreibung etwas wert.
+    if (!result.found || rooms.length === 0) {
       await env.DB.prepare(
-        "UPDATE hotels SET enrich_status = 'failed', enrich_error = ?, enriched_at = ? WHERE id = ?"
-      ).bind('Keine gesicherten Zimmerkategorien gefunden', stamp, hotelId).run();
+        `UPDATE hotels SET enrich_status = 'failed', enrich_error = ?, enriched_at = ?,
+           chain = COALESCE(?, chain), brand = COALESCE(?, brand),
+           program = COALESCE(?, program), lounge = COALESCE(?, lounge),
+           breakfast_note = COALESCE(?, breakfast_note),
+           address = COALESCE(?, address), website = COALESCE(?, website),
+           description = COALESCE(?, description)
+         WHERE id = ?`
+      ).bind(
+        result.found
+          ? 'Hotel gefunden, aber keine Zimmerkategorien'
+          : 'Das Haus liess sich nicht eindeutig zuordnen',
+        stamp,
+        result.chain || null, result.brand || null, result.program || null,
+        result.lounge === true ? 1 : result.lounge === false ? 0 : null,
+        result.breakfast_note || null, result.address || null,
+        result.website || null, result.description || null,
+        hotelId
+      ).run();
       return;
     }
 
     // Was der Nutzer bestaetigt hat, bleibt unangetastet.
-    const inserts = result.rooms.slice(0, 30).map((r, i) =>
+    const inserts = rooms.slice(0, 30).map((r, i) =>
       env.DB.prepare(
         `INSERT INTO room_types
            (hotel_id, name, rank, confirmed, source, source_url, type, size_sqm,

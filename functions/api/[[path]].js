@@ -379,9 +379,9 @@ async function hotelsFromGoogle(env, q, lat, lon, city) {
   if (await usageCount(env, 'google') >= limit) return null;
 
   const body = {
-    textQuery: [q, city].filter(Boolean).join(' '),
-    includedType: 'lodging',
-    maxResultCount: 12,
+    // "hotel" im Text hilft Google, Wohnheime und Ferienwohnungen auszusortieren.
+    textQuery: [q, 'hotel', city].filter(Boolean).join(' '),
+    maxResultCount: 15,
     languageCode: 'de',
   };
   if (lat && lon) {
@@ -394,7 +394,7 @@ async function hotelsFromGoogle(env, q, lat, lon, city) {
       'content-type': 'application/json',
       'X-Goog-Api-Key': key,
       // Nur Name, Adresse und Lage – das bleibt in der guenstigen Stufe.
-      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location',
+      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types',
     },
     body: JSON.stringify(body),
   });
@@ -402,10 +402,20 @@ async function hotelsFromGoogle(env, q, lat, lon, city) {
   await usageAdd(env, 'google', 1);
   if (!res.ok) return null;
 
+  // Nur Beherbergungsbetriebe, keine Wohnheime, Campingplaetze oder Ferienwohnungen.
+  const erlaubt = new Set([
+    'hotel', 'resort_hotel', 'motel', 'extended_stay_hotel', 'inn',
+    'bed_and_breakfast', 'guest_house', 'hostel', 'japanese_inn', 'budget_japanese_inn',
+  ]);
+
   const daten = await res.json();
   return (daten.places || []).map((place) => {
     const name = place.displayName?.text;
     if (!name) return null;
+
+    const typen = [place.primaryType, ...(place.types || [])].filter(Boolean);
+    if (typen.length && !typen.some((typ) => erlaubt.has(typ))) return null;
+
     return {
       source: 'google',
       source_id: 'google/' + place.id,

@@ -1774,7 +1774,9 @@ async function chooseCity(city) {
   box.innerHTML = '<p class="options-empty">Hotels werden geladen …</p>';
   try {
     state.hotelCandidates = await api('/geo/hotels?lat=' + city.lat + '&lon=' + city.lon);
-    count.textContent = state.hotelCandidates.length + ' im Umkreis';
+    count.textContent = state.hotelCandidates.length
+      ? state.hotelCandidates.length + ' im Umkreis'
+      : 'keine im Umkreis – tipp den Namen';
     renderHotelOptions([]);
   } catch (e) {
     count.textContent = 'Umkreissuche gescheitert';

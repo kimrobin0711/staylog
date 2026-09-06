@@ -460,6 +460,21 @@ async function enrichHotel(env, hotel) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
+// Ein Lauf gilt als steckengeblieben, wenn er ohne Startzeit dasteht (Rest aus
+// der alten Hintergrundverarbeitung) oder seit ueber drei Minuten laeuft.
+function isStuck(hotel) {
+  if (hotel.enrich_status !== 'running') return false;
+  if (!hotel.enriched_at) return true;
+  return Date.now() - Date.parse(hotel.enriched_at) > 180000;
+}
+
+// Zurueck auf "pending", damit der Browser die Recherche neu anstossen kann.
+async function unstick(env, hotelId) {
+  await env.DB.prepare(
+    "UPDATE hotels SET enrich_status = 'pending', enrich_error = NULL WHERE id = ?"
+  ).bind(hotelId).run();
+}
+
 async function runEnrichment(env, hotelId) {
   const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
   if (!hotel) return;
@@ -851,6 +866,16 @@ export async function onRequest(context) {
     /* ---- Hotels ---- */
 
     // Diagnose: Zustand der Recherchen.
+    // Alle steckengebliebenen Recherchen auf einen Schlag freigeben.
+    if (path === '/hotels/unstick' && method === 'POST') {
+      const rows = await env.DB.prepare(
+        "SELECT id, enrich_status, enriched_at FROM hotels WHERE enrich_status = 'running'"
+      ).all();
+      const stuck = rows.results.filter(isStuck);
+      for (const h of stuck) await unstick(env, h.id);
+      return json({ freigegeben: stuck.map((h) => h.id) });
+    }
+
     if (path === '/hotels/status' && method === 'GET') {
       const rows = await env.DB.prepare(
         `SELECT id, name, city, enrich_status, enrich_error, enriched_at,
@@ -889,6 +914,9 @@ export async function onRequest(context) {
       let hotelId;
       if (existing) {
         hotelId = existing.id;
+        if (isStuck(existing)) {
+          await unstick(env, hotelId);
+        }
       } else {
         const res = await env.DB.prepare(
           `INSERT INTO hotels (source, source_id, name, brand, program, country, country_code, city, lat, lon, created_at)
@@ -920,13 +948,9 @@ export async function onRequest(context) {
         let hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
         if (!hotel) return fail('Hotel nicht gefunden', 404);
 
-        // Laeuft eine Recherche laenger als drei Minuten, ist sie abgebrochen.
-        if (hotel.enrich_status === 'running' && hotel.enriched_at
-            && Date.now() - Date.parse(hotel.enriched_at) > 180000) {
-          await env.DB.prepare(
-            "UPDATE hotels SET enrich_status = 'failed', enrich_error = ? WHERE id = ?"
-          ).bind('Die Recherche wurde nicht zu Ende gefuehrt', hotelId).run();
-          hotel = { ...hotel, enrich_status: 'failed', enrich_error: 'abgebrochen' };
+        if (isStuck(hotel)) {
+          await unstick(env, hotelId);
+          hotel = { ...hotel, enrich_status: 'pending', enrich_error: null };
         }
         const rooms = await env.DB.prepare('SELECT * FROM room_types WHERE hotel_id = ? ORDER BY rank, name')
           .bind(hotelId).all();

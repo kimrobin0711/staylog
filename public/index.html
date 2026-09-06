@@ -65,6 +65,12 @@
       <p class="note">Einmal gepflegt, wird der passende Status beim Eintragen automatisch gesetzt. Hängt an deiner Adresse, gilt also auf allen Geräten.</p>
       <div id="status-settings" class="status-settings"></div>
       <button type="button" id="status-add" class="btn btn-quiet">Programm hinzufügen</button>
+
+      <section class="account">
+        <h3>Konto</h3>
+        <p id="account-who" class="note"></p>
+        <button type="button" id="logout" class="btn btn-quiet">Abmelden</button>
+      </section>
     </div>
     <footer class="drawer-foot">
       <button type="button" id="settings-cancel" class="btn btn-quiet">Verwerfen</button>
@@ -110,6 +116,7 @@
           </div>
           <div id="chips" class="chips-active"></div>
         </div>
+        <div id="hotel-hits" class="hotel-hits" hidden></div>
         <div id="stay-list" class="stay-list"></div>
       </section>
 
@@ -146,6 +153,10 @@
       </ol>
 
       <form id="stay-form" hidden>
+        <div id="edit-banner" class="edit-banner" hidden>
+          <span>Du bearbeitest einen bestehenden Aufenthalt.</span>
+          <button type="button" id="edit-cancel" class="link-btn">abbrechen</button>
+        </div>
         <article class="hotel-card">
           <div class="hotel-card-head">
             <div>
@@ -163,10 +174,20 @@
         <section class="form-block">
           <h3>Zimmer</h3>
           <div class="room-flow">
-            <label>Gebuchte Kategorie<select id="s-booked"></select></label>
-            <div id="upgrade-hint" class="upgrade-hint">&nbsp;</div>
-            <label>Erhaltene Kategorie<select id="s-received"></select></label>
+            <div class="room-slot">
+              <span class="room-slot-label">GEBUCHT</span>
+              <select id="s-booked"></select>
+            </div>
+            <div id="upgrade-hint" class="upgrade-badge">
+              <span class="upgrade-arrow">↓</span>
+              <span id="upgrade-text">Kategorien wählen</span>
+            </div>
+            <div class="room-slot">
+              <span class="room-slot-label">ERHALTEN</span>
+              <select id="s-received"></select>
+            </div>
           </div>
+          <p id="rank-warning" class="rank-warning" hidden></p>
           <details id="rooms-box" class="rooms-box">
             <summary class="rooms-head">
               <span>Zimmerkategorien des Hotels</span>
@@ -177,6 +198,7 @@
               <input id="room-new" placeholder="Kategorie ergänzen">
               <button type="button" id="room-add" class="btn btn-quiet">hinzufügen</button>
             </div>
+            <button type="button" id="rooms-refresh" class="link-btn">neu recherchieren</button>
           </details>
         </section>
 
@@ -216,7 +238,11 @@
 
         <section class="form-block">
           <h3>Fotos</h3>
-          <input type="file" id="s-photos" accept="image/*" multiple>
+          <input type="file" id="s-photos" accept="image/*" multiple hidden>
+          <button type="button" id="dropzone" class="dropzone">
+            <span class="dropzone-title">Fotos hinzufügen</span>
+            <span class="dropzone-hint">Hierher ziehen oder klicken zum Auswählen</span>
+          </button>
           <div id="photo-previews" class="photo-previews"></div>
         </section>
 

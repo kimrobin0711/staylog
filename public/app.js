@@ -31,6 +31,7 @@ const state = {
   selected: null,
   guest: false,
   mode: '',
+  editing: null,
 };
 
 /* ------------------------------------------------------------ Stammdaten */
@@ -230,19 +231,19 @@ for (const id of ['#gate-key', '#gate-email', '#gate-name']) {
   $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#gate-go').click(); });
 }
 
-$('#guest-login').addEventListener('click', () => {
-  localStorage.removeItem('staylog.pass');
-  localStorage.removeItem('staylog.email');
-  location.reload();
-});
-
-$('#who').addEventListener('click', () => {
-  if (!confirm('Abmelden und Passwort auf diesem Gerät vergessen?')) return;
+function signOut() {
   localStorage.removeItem('staylog.pass');
   localStorage.removeItem('staylog.email');
   localStorage.removeItem('staylog.name');
+  localStorage.removeItem('staylog.status');
+  sessionStorage.setItem('staylog.gate', '1');
   location.reload();
-});
+}
+
+$('#guest-login').addEventListener('click', signOut);
+
+// Klick auf den eigenen Namen öffnet die Einstellungen, dort steht das Abmelden.
+$('#who').addEventListener('click', () => openSettings());
 
 /* ------------------------------------------------------------ Navigation */
 
@@ -265,6 +266,10 @@ $('#brand').addEventListener('click', () => showView('stays'));
 /* ---------------------------------------------------------- Einstellungen */
 
 function openSettings() {
+  $('#account-who').textContent = state.guest
+    ? 'Du bist als Gast unterwegs.'
+    : 'Angemeldet als ' + state.me + (state.email ? ' · ' + state.email : '');
+  $('#logout').textContent = state.guest ? 'Anmelden' : 'Abmelden';
   state.draftStatus = { ...state.myStatus };
   state.addingStatus = false;
   buildSettings();
@@ -362,6 +367,11 @@ $('#settings-save').addEventListener('click', async () => {
   } catch { /* im Gerät steht es trotzdem */ }
   button.disabled = false;
   closeSettings();
+});
+
+$('#logout').addEventListener('click', () => {
+  if (state.guest) { signOut(); return; }
+  if (confirm('Abmelden? Das Passwort wird auf diesem Gerät vergessen.')) signOut();
 });
 
 $('#settings-toggle').addEventListener('click', () => {
@@ -523,6 +533,7 @@ function inRange(stay) {
 function renderStayList() {
   const box = $('#stay-list');
   const q = $('#f-text').value.trim();
+  renderHotelHits(q);
 
   const list = state.stays.filter((s) => {
     if (!inRange(s)) return false;
@@ -545,6 +556,33 @@ function renderStayList() {
   for (const s of list) box.appendChild(renderStayCard(s));
 }
 
+// Passende Hotels als eigener Vorschlag über der Liste.
+function renderHotelHits(q) {
+  const box = $('#hotel-hits');
+  box.innerHTML = '';
+  box.hidden = true;
+  if (!q || q.length < 2) return;
+
+  const seen = new Set();
+  const hits = [];
+  for (const p of state.places) {
+    if (seen.has(p.hotel_id)) continue;
+    if (!fuzzyMatch(p.hotel_name + ' ' + p.city, q)) continue;
+    seen.add(p.hotel_id);
+    hits.push(p);
+  }
+  if (!hits.length) return;
+
+  box.hidden = false;
+  box.appendChild(el('h4', null, 'HOTELS'));
+  for (const p of hits.slice(0, 5)) {
+    const row = el('div', 'hotel-hit');
+    row.appendChild(hotelLink(p.hotel_name, p.hotel_id));
+    row.appendChild(el('span', 'n', [p.city, p.country].filter(Boolean).join(', ')));
+    box.appendChild(row);
+  }
+}
+
 /* ---------------------------------------------------------------- Karten */
 
 function renderStayCard(s) {
@@ -554,7 +592,7 @@ function renderStayCard(s) {
 
   const top = el('div', 'stay-top');
   const head = el('div');
-  head.appendChild(el('div', 'stay-hotel', s.hotel_name));
+  head.appendChild(hotelLink(s.hotel_name, s.hotel_id, 'stay-hotel'));
   head.appendChild(el('div', 'stay-place', [s.city, s.country].filter(Boolean).join(', ')));
   top.appendChild(head);
   if (s.price != null) top.appendChild(el('div', 'stay-price', formatMoney(s.price, s.currency)));
@@ -631,6 +669,15 @@ function upgradeText(steps) {
   return '+' + steps + (steps === 1 ? ' Kategorie' : ' Kategorien');
 }
 
+// Hotelnamen sind überall Einstieg in die Hotelseite.
+function hotelLink(name, hotelId, cls) {
+  const button = el('button', (cls ? cls + ' ' : '') + 'hotel-link', name);
+  button.type = 'button';
+  button.title = 'Hotelseite öffnen';
+  button.addEventListener('click', (e) => { e.stopPropagation(); showHotel(hotelId); });
+  return button;
+}
+
 const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
 function formatMoney(value, currency) {
@@ -663,7 +710,7 @@ function showDetail(s) {
   box.innerHTML = '';
   $('#detail-pane').classList.add('is-open');
 
-  box.appendChild(el('h3', 'detail-title', s.hotel_name));
+  box.appendChild(hotelLink(s.hotel_name, s.hotel_id, 'detail-title'));
   box.appendChild(el('p', 'detail-sub', [s.city, s.country].filter(Boolean).join(', ')));
 
   const badges = el('div', 'badge-row');
@@ -746,6 +793,12 @@ function showDetail(s) {
   actions.appendChild(share);
 
   if (s.author === state.me) {
+    const edit = el('button', 'btn btn-quiet', 'Bearbeiten');
+    edit.addEventListener('click', () => editStay(s));
+    actions.appendChild(edit);
+  }
+
+  if (s.author === state.me) {
     const del = el('button', 'btn btn-quiet', 'Löschen');
     del.addEventListener('click', async () => {
       if (!confirm('Diesen Aufenthalt löschen?')) return;
@@ -774,8 +827,57 @@ function shareStay(s) {
   else navigator.clipboard.writeText(text).then(() => alert('In die Zwischenablage kopiert.'));
 }
 
+// Bestehenden Aufenthalt zum Bearbeiten ins Formular laden.
+async function editStay(stay) {
+  const res = await api('/hotels/' + stay.hotel_id);
+  state.hotel = res.hotel;
+  state.rooms = res.rooms;
+  state.editing = stay.id;
+  state.skipEnrichment = true;
+  state.programTouched = true;
+  state.pendingPhotos = [];
+  state.benefitValues = {};
+
+  showView('new');
+  $('#picker').hidden = true;
+  $('#stay-form').hidden = false;
+  $('#edit-banner').hidden = false;
+  $('#photo-previews').innerHTML = '';
+
+  renderChosenHotel();
+  renderRooms();
+  loadGallery();
+
+  $('#s-program').value = stay.program || '';
+  syncStatusOptions();
+  $('#s-status').value = stay.status_level || '';
+  $('#s-checkin').value = stay.checkin || '';
+  $('#s-checkout').value = stay.checkout || '';
+  $('#s-booked').value = stay.booked_room || '';
+  $('#s-received').value = stay.received_room || '';
+  $('#s-price').value = stay.price ?? '';
+  $('#s-currency').value = stay.currency || 'EUR';
+  $('#s-notes').value = stay.notes || '';
+
+  const chosen = new Map((stay.benefits || []).map((b) => [b.name, b.value]));
+  for (const input of document.querySelectorAll('#benefit-list input')) {
+    input.checked = chosen.has(input.value);
+    if (chosen.get(input.value)) state.benefitValues[input.value] = chosen.get(input.value);
+  }
+  renderBenefitValues();
+  updateUpgradeHint();
+
+  document.querySelector('#stay-form button[type=submit]').textContent = 'Änderungen speichern';
+}
+
+$('#edit-cancel').addEventListener('click', () => {
+  resetPicker();
+  showView('stays');
+});
+
 /* ------------------------------------------------------- Hotel-Detailseite */
 
+// Beantwortet: Was bringt mein Status in genau diesem Haus?
 async function showHotel(hotelId) {
   const box = $('#detail-body');
   box.innerHTML = '';
@@ -786,17 +888,17 @@ async function showHotel(hotelId) {
     const data = await api('/hotels/' + hotelId + '/community');
     box.innerHTML = '';
 
-    const back = el('button', 'link-btn', '← zurück zum Aufenthalt');
-    back.addEventListener('click', () => {
-      const stay = state.stays.find((s) => s.id === state.selected);
-      if (stay) showDetail(stay); else closeDetail();
-    });
-    box.appendChild(back);
+    if (state.selected) {
+      const back = el('button', 'link-btn', '← zurück zum Aufenthalt');
+      back.addEventListener('click', () => {
+        const stay = state.stays.find((s) => s.id === state.selected);
+        if (stay) showDetail(stay); else closeDetail();
+      });
+      box.appendChild(back);
+    }
 
-    const hero = el('div', 'hotel-hero');
-    hero.appendChild(el('h3', 'detail-title', data.hotel.name));
-    hero.appendChild(el('p', 'detail-sub', [data.hotel.city, data.hotel.country].filter(Boolean).join(', ')));
-    box.appendChild(hero);
+    box.appendChild(el('h3', 'detail-title', data.hotel.name));
+    box.appendChild(el('p', 'detail-sub', [data.hotel.city, data.hotel.country].filter(Boolean).join(', ')));
 
     if (data.hotel.program) {
       const badges = el('div', 'badge-row');
@@ -804,8 +906,9 @@ async function showHotel(hotelId) {
       box.appendChild(badges);
     }
 
-    const stats = el('div', 'detail-section');
-    stats.appendChild(el('h4', null, 'COMMUNITY-ERFAHRUNGEN'));
+    // Community
+    const community = el('div', 'detail-section');
+    community.appendChild(el('h4', null, 'COMMUNITY'));
     const grid = el('div', 'hotel-stat-grid');
     const stat = (num, label) => {
       const cell = el('div', 'hotel-stat');
@@ -814,20 +917,59 @@ async function showHotel(hotelId) {
       grid.appendChild(cell);
     };
     stat(String(data.stays), data.stays === 1 ? 'Aufenthalt' : 'Aufenthalte');
-    stat(data.upgrade_quote != null ? data.upgrade_quote + ' %' : '–', 'Upgrade erhalten');
-    stat(data.mehr_als_eine != null ? data.mehr_als_eine + ' %' : '–', 'mehr als eine Kategorie');
-    stat(data.avg_steps != null ? '+' + data.avg_steps.toString().replace('.', ',') : '–', 'Ø Kategorien');
-    stats.appendChild(grid);
-    box.appendChild(stats);
+    stat(String(data.people), data.people === 1 ? 'Person' : 'Personen');
 
+    // Bei ganz wenigen Meldungen keine Scheingenauigkeit vorgaukeln.
+    if (data.stays >= 3) {
+      stat(data.upgrade_quote != null ? data.upgrade_quote + ' %' : '–', 'Upgradequote');
+      stat(data.suite_quote != null ? data.suite_quote + ' %' : '–', 'Suite-Upgrades');
+    }
+    if (data.avg_steps != null) stat((data.avg_steps > 0 ? '+' : '') + comma(data.avg_steps), 'Ø Kategorien');
+    community.appendChild(grid);
+
+    if (data.stays < 3) {
+      community.appendChild(el('p', 'sample-note',
+        data.stays === 1
+          ? 'Erst ein gemeldeter Aufenthalt – für Quoten zu wenig.'
+          : data.stays + ' gemeldete Aufenthalte – für belastbare Quoten noch zu wenig.'));
+    }
+    box.appendChild(community);
+
+    // Status-Erfahrungen
+    if (data.by_status.length) {
+      const section = el('div', 'detail-section');
+      section.appendChild(el('h4', null, 'STATUS-ERFAHRUNGEN'));
+      for (const g of data.by_status) {
+        const row = el('div', 'status-line');
+        const left = el('div');
+        if (g.status) {
+          const badge = el('span', 'badge badge-status', g.status);
+          badge.style.background = statusColor(g.status);
+          left.appendChild(badge);
+        } else {
+          left.appendChild(el('span', null, g.label));
+        }
+        left.appendChild(el('div', 'sample-note',
+          g.stays + (g.stays === 1 ? ' Aufenthalt' : ' Aufenthalte')
+          + (g.avg_steps != null ? ' · Ø ' + (g.avg_steps > 0 ? '+' : '') + comma(g.avg_steps) : '')));
+        row.appendChild(left);
+        row.appendChild(el('span', 'quote', g.stays >= 3 && g.upgrade_quote != null
+          ? g.upgrade_quote + ' %'
+          : (g.upgrade_quote === 100 ? 'Upgrade' : g.upgrade_quote === 0 ? 'kein Upgrade' : '–')));
+        section.appendChild(row);
+      }
+      box.appendChild(section);
+    }
+
+    // Häufige Upgrades
     if (data.pairs.length) {
       const section = el('div', 'detail-section');
-      section.appendChild(el('h4', null, 'UPGRADE-ERFAHRUNGEN'));
+      section.appendChild(el('h4', null, 'HÄUFIGE UPGRADES'));
       for (const pair of data.pairs) {
         const row = el('div', 'pair');
         const rooms = el('div', 'pair-rooms');
         rooms.appendChild(el('div', null, pair.booked));
-        rooms.appendChild(el('div', 'to', '→ ' + pair.received));
+        rooms.appendChild(el('div', 'to', '↓ ' + pair.received));
         row.appendChild(rooms);
         row.appendChild(el('span', 'pair-count', pair.count + '× gemeldet'));
         section.appendChild(row);
@@ -835,22 +977,21 @@ async function showHotel(hotelId) {
       box.appendChild(section);
     }
 
+    // Benefits
     if (data.benefits.length) {
       const section = el('div', 'detail-section');
-      section.appendChild(el('h4', null, 'WAS ES DAZU GAB'));
-      for (const b of data.benefits) {
-        const row = el('div', 'bar-row');
-        const top = el('div', 'bar-top');
-        top.appendChild(el('span', null, b.name + (b.values.length ? ' · ' + [...new Set(b.values)].slice(0, 3).join(', ') : '')));
-        top.appendChild(el('span', 'muted', b.quote + ' %'));
-        row.appendChild(top);
-        const track = el('div', 'bar-track');
-        const fill = el('div', 'bar-fill');
-        fill.style.width = b.quote + '%';
-        track.appendChild(fill);
-        row.appendChild(track);
-        section.appendChild(row);
-      }
+      section.appendChild(el('h4', null, 'BENEFITS'));
+      for (const b of data.benefits) section.appendChild(benefitBar(b, data.stays));
+      box.appendChild(section);
+    }
+
+    // Letzte Erfahrungen
+    if (data.recent.length) {
+      const section = el('div', 'detail-section');
+      section.appendChild(el('h4', null, 'LETZTE ERFAHRUNGEN'));
+      const list = el('div', 'recent-list');
+      for (const s of data.recent) list.appendChild(renderStayCard(s));
+      section.appendChild(list);
       box.appendChild(section);
     }
 
@@ -879,6 +1020,26 @@ async function showHotel(hotelId) {
     box.appendChild(el('p', 'detail-placeholder', e.message));
   }
 }
+
+// Balken mit Quote und Stichprobe.
+function benefitBar(b, total) {
+  const row = el('div', 'bar-row');
+  const top = el('div', 'bar-top');
+  top.appendChild(el('span', null, b.name + (b.values?.length ? ' · ' + b.values.slice(0, 3).join(', ') : '')));
+  top.appendChild(el('span', 'muted', total >= 3
+    ? b.quote + ' %'
+    : b.count + '×'));
+  row.appendChild(top);
+  const track = el('div', 'bar-track');
+  const fill = el('div', 'bar-fill');
+  fill.style.width = (total >= 3 ? b.quote : Math.round((b.count / Math.max(total, 1)) * 100)) + '%';
+  track.appendChild(fill);
+  row.appendChild(track);
+  if (total >= 3) row.appendChild(el('div', 'sample-note', 'basierend auf ' + total + ' Aufenthalten'));
+  return row;
+}
+
+const comma = (n) => String(n).replace('.', ',');
 
 /* ---------------------------------------------- Eintragen: Land, Stadt, Hotel */
 
@@ -1052,6 +1213,9 @@ async function chooseHotel(candidate) {
 
 function resetPicker() {
   clearInterval(state.pollTimer);
+  state.editing = null;
+  $('#edit-banner').hidden = true;
+  document.querySelector('#stay-form button[type=submit]').textContent = 'Aufenthalt eintragen';
   state.hotel = null;
   state.rooms = [];
   state.pendingPhotos = [];
@@ -1172,19 +1336,21 @@ function renderRooms() {
   const list = $('#rooms-list');
   const status = $('#rooms-status');
   const adder = document.querySelector('.rooms-add');
+  const refresh = $('#rooms-refresh');
   const st = state.hotel?.enrich_status;
   const busy = !state.skipEnrichment && (st === 'pending' || st === 'running');
 
   list.innerHTML = '';
   adder.hidden = busy;
+  refresh.hidden = busy;
 
   if (busy) {
-    status.textContent = 'wird recherchiert …';
+    status.textContent = 'läuft …';
     const wait = el('div', 'rooms-wait');
     wait.appendChild(el('span', 'spinner'));
     const texts = el('div');
-    texts.appendChild(el('div', null, 'Zimmerkategorien werden recherchiert'));
-    texts.appendChild(el('div', 'rooms-wait-note', 'Dauert meist zehn bis zwanzig Sekunden. Du kannst den Rest schon ausfüllen.'));
+    texts.appendChild(el('div', null, 'Zimmerkategorien werden auf der Hotelwebseite recherchiert …'));
+    texts.appendChild(el('div', 'rooms-wait-note', 'Das kann einen Moment dauern. Du kannst den Rest schon ausfüllen.'));
     wait.appendChild(texts);
     list.appendChild(wait);
 
@@ -1200,35 +1366,124 @@ function renderRooms() {
     return;
   }
 
-  const rooms = state.rooms.length ? state.rooms : fallbackRooms();
-  const isFallback = state.rooms.length === 0;
+  const found = state.rooms.length;
+  const rooms = found ? state.rooms : fallbackRooms();
 
-  if (isFallback) {
-    status.textContent = 'allgemeine Liste der Marke – bitte anpassen';
+  if (found) {
+    status.innerHTML = '';
+    status.appendChild(el('span', 'rooms-found', '✓ ' + found + (found === 1 ? ' Kategorie' : ' Kategorien') + ' gefunden'));
   } else {
-    const open = state.rooms.filter((r) => !r.confirmed).length;
-    status.textContent = open ? open + ' Vorschläge' : 'bestätigt';
+    status.textContent = 'nichts gefunden';
+    list.appendChild(el('p', 'rooms-failed',
+      'Keine Zimmerkategorien gefunden. Die Liste unten ist die allgemeine Leiter der Marke – ergänze oder ersetze sie.'));
+    const add = el('button', 'btn btn-quiet', 'Zimmerkategorie selbst hinzufügen');
+    add.type = 'button';
+    add.addEventListener('click', () => {
+      $('#rooms-box').open = true;
+      $('#room-new').focus();
+    });
+    list.appendChild(add);
   }
 
-  for (const room of rooms) {
+  rooms.forEach((room, index) => {
     const row = el('div', 'room-row' + (room.confirmed ? '' : ' is-suggested'));
+
     const check = document.createElement('input');
     check.type = 'checkbox';
     check.checked = !!room.confirmed;
     check.setAttribute('aria-label', 'Kategorie ' + room.name + ' bestätigen');
     check.addEventListener('change', () => confirmRoom(room, check.checked));
     row.appendChild(check);
+
+    // Reihenfolge korrigieren
+    const move = el('div', 'room-move');
+    const up = el('button', null, '▲');
+    up.type = 'button';
+    up.title = 'nach oben';
+    up.disabled = index === 0 || !found;
+    up.addEventListener('click', () => moveRoom(index, -1));
+    const down = el('button', null, '▼');
+    down.type = 'button';
+    down.title = 'nach unten';
+    down.disabled = index === rooms.length - 1 || !found;
+    down.addEventListener('click', () => moveRoom(index, 1));
+    move.append(up, down);
+    row.appendChild(move);
+
     row.appendChild(el('span', 'rank', room.rank ?? ''));
-    row.appendChild(el('span', 'name', room.name));
+
+    const name = el('span', 'name');
+    name.appendChild(document.createTextNode(room.name));
+    const bits = [
+      room.size_sqm ? room.size_sqm + ' m²' : null,
+      room.bed_type || null,
+      room.max_occupancy ? 'bis ' + room.max_occupancy + ' Pers.' : null,
+    ].filter(Boolean);
+    if (bits.length) {
+      name.appendChild(document.createElement('br'));
+      name.appendChild(el('span', 'meta', bits.join(' · ')));
+    }
+    row.appendChild(name);
+
+    if (room.type) row.appendChild(el('span', 'type', room.type === 'suite' ? 'SUITE' : 'ROOM'));
+
     if (room.source_url) {
       const a = el('a', null, 'Quelle');
-      a.href = room.source_url; a.target = '_blank'; a.rel = 'noopener';
+      a.href = room.source_url;
+      a.target = '_blank';
+      a.rel = 'noopener';
       row.appendChild(a);
     }
     list.appendChild(row);
-  }
+  });
+
   fillRoomSelects(rooms);
+  renderRankWarning();
 }
+
+// Reihenfolge tauschen und gleich als geprüft speichern.
+async function moveRoom(index, direction) {
+  const rooms = [...state.rooms];
+  const target = index + direction;
+  if (target < 0 || target >= rooms.length) return;
+
+  [rooms[index], rooms[target]] = [rooms[target], rooms[index]];
+  const payload = rooms.map((room, i) => ({
+    name: room.name,
+    rank: i + 1,
+    type: room.type || null,
+    confirmed: room.confirmed === 1,
+  }));
+
+  const res = await api('/hotels/' + state.hotel.id + '/rooms', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ rooms: payload, rank_confirmed: true }),
+  });
+  state.rooms = res.rooms;
+  if (state.hotel) state.hotel.rank_reliable = 1;
+  renderRooms();
+}
+
+function renderRankWarning() {
+  const box = $('#rank-warning');
+  const unsure = state.hotel && state.hotel.rank_reliable === 0 && state.rooms.length;
+  box.hidden = !unsure;
+  if (unsure) {
+    box.textContent = 'Die Reihenfolge der Kategorien ließ sich auf der Hotelseite nicht sicher belegen. '
+      + 'Die Upgrade-Stufe ist deshalb nur ein Anhaltspunkt – korrigier die Reihenfolge unten mit den Pfeilen.';
+  }
+}
+
+$('#rooms-refresh').addEventListener('click', async () => {
+  if (!state.hotel) return;
+  if (!confirm('Zimmerkategorien neu recherchieren? Von dir bestätigte Kategorien bleiben erhalten.')) return;
+  await api('/hotels/' + state.hotel.id + '/enrich', { method: 'POST' });
+  state.hotel.enrich_status = 'running';
+  state.skipEnrichment = false;
+  renderRooms();
+  watchEnrichment();
+});
 
 function fillRoomSelects(rooms, placeholder) {
   for (const id of ['#s-booked', '#s-received']) {
@@ -1245,19 +1500,29 @@ function fillRoomSelects(rooms, placeholder) {
 
 // Zeigt sofort, was der Status gebracht hat.
 function updateUpgradeHint() {
-  const hint = $('#upgrade-hint');
+  const badge = $('#upgrade-hint');
+  const text = $('#upgrade-text');
   const rooms = state.rooms.length ? state.rooms : fallbackRooms();
   const rank = (name) => rooms.find((r) => r.name === name)?.rank;
   const booked = rank($('#s-booked').value);
   const got = rank($('#s-received').value);
 
-  hint.className = 'upgrade-hint';
-  if (booked == null || got == null) { hint.textContent = '↓'; return; }
+  badge.className = 'upgrade-badge';
+  if (booked == null || got == null) {
+    text.textContent = $('#s-booked').disabled ? 'Kategorien werden geladen' : 'Kategorien wählen';
+    return;
+  }
   const steps = got - booked;
-  hint.textContent = '↓  ' + upgradeText(steps);
-  if (steps > 0) hint.classList.add('up');
-  if (steps < 0) hint.classList.add('down');
+  text.textContent = upgradeText(steps);
+  if (steps > 0) badge.classList.add('up');
+  if (steps < 0) badge.classList.add('down');
+
+  if (state.hotel && state.hotel.rank_reliable === 0) {
+    const note = el('span', 'sample', ' Reihenfolge unsicher');
+    text.appendChild(note);
+  }
 }
+
 $('#s-booked').addEventListener('change', updateUpgradeHint);
 $('#s-received').addEventListener('change', updateUpgradeHint);
 
@@ -1379,23 +1644,87 @@ async function shrink(file, max = 1600) {
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
 }
 
-$('#s-photos').addEventListener('change', async (e) => {
-  for (const file of e.target.files) {
+async function addPhotos(files) {
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) continue;
     const blob = await shrink(file);
-    const entry = { blob, caption: '' };
-    state.pendingPhotos.push(entry);
+    state.pendingPhotos.push({ blob, caption: '', url: URL.createObjectURL(blob) });
+  }
+  renderPhotoPreviews();
+}
+
+function renderPhotoPreviews() {
+  const box = $('#photo-previews');
+  box.innerHTML = '';
+  state.pendingPhotos.forEach((entry, index) => {
     const wrap = el('div', 'photo-preview');
     const img = document.createElement('img');
-    img.src = URL.createObjectURL(blob);
+    img.src = entry.url;
     img.alt = '';
+    wrap.appendChild(img);
+
+    const tools = el('div', 'photo-tools');
+    if (index > 0) {
+      const left = el('button', null, '‹');
+      left.type = 'button';
+      left.title = 'nach vorn';
+      left.addEventListener('click', () => {
+        [state.pendingPhotos[index - 1], state.pendingPhotos[index]] =
+          [state.pendingPhotos[index], state.pendingPhotos[index - 1]];
+        renderPhotoPreviews();
+      });
+      tools.appendChild(left);
+    }
+    if (index < state.pendingPhotos.length - 1) {
+      const right = el('button', null, '›');
+      right.type = 'button';
+      right.title = 'nach hinten';
+      right.addEventListener('click', () => {
+        [state.pendingPhotos[index + 1], state.pendingPhotos[index]] =
+          [state.pendingPhotos[index], state.pendingPhotos[index + 1]];
+        renderPhotoPreviews();
+      });
+      tools.appendChild(right);
+    }
+    const remove = el('button', null, '×');
+    remove.type = 'button';
+    remove.title = 'entfernen';
+    remove.addEventListener('click', () => {
+      URL.revokeObjectURL(entry.url);
+      state.pendingPhotos.splice(index, 1);
+      renderPhotoPreviews();
+    });
+    tools.appendChild(remove);
+    wrap.appendChild(tools);
+
     const caption = document.createElement('input');
-    caption.placeholder = 'Bildunterschrift';
+    caption.placeholder = 'Beschreibung';
+    caption.value = entry.caption;
     caption.addEventListener('input', () => { entry.caption = caption.value; });
-    wrap.append(img, caption);
-    $('#photo-previews').appendChild(wrap);
-  }
+    wrap.appendChild(caption);
+    box.appendChild(wrap);
+  });
+}
+
+$('#dropzone').addEventListener('click', () => $('#s-photos').click());
+$('#s-photos').addEventListener('change', async (e) => {
+  await addPhotos(e.target.files);
   e.target.value = '';
 });
+
+for (const type of ['dragenter', 'dragover']) {
+  $('#dropzone').addEventListener(type, (e) => {
+    e.preventDefault();
+    $('#dropzone').classList.add('is-over');
+  });
+}
+for (const type of ['dragleave', 'drop']) {
+  $('#dropzone').addEventListener(type, (e) => {
+    e.preventDefault();
+    $('#dropzone').classList.remove('is-over');
+  });
+}
+$('#dropzone').addEventListener('drop', (e) => addPhotos(e.dataTransfer.files));
 
 $('#stay-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1407,10 +1736,7 @@ $('#stay-form').addEventListener('submit', async (e) => {
       value: (state.benefitValues[i.value] || '').trim() || null,
     }));
 
-    const { id } = await api('/stays', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    const payload = JSON.stringify({
         hotel_id: state.hotel.id,
         program: $('#s-program').value,
         status_level: $('#s-status').value,
@@ -1422,8 +1748,15 @@ $('#stay-form').addEventListener('submit', async (e) => {
         currency: $('#s-currency').value,
         benefits,
         notes: $('#s-notes').value,
-      }),
     });
+
+    const { id } = state.editing
+      ? await api('/stays/' + state.editing, {
+          method: 'PUT', headers: { 'content-type': 'application/json' }, body: payload,
+        })
+      : await api('/stays', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: payload,
+        });
 
     for (const photo of state.pendingPhotos) {
       await api('/photos?stay_id=' + id + '&caption=' + encodeURIComponent(photo.caption || ''), {
@@ -1488,13 +1821,18 @@ async function loadStats() {
 
       const upgrades = el('div');
       upgrades.appendChild(el('h4', null, 'UPGRADES'));
-      const stats = el('div');
-      stats.appendChild(el('div', 'total-num', g.upgrade_quote != null ? g.upgrade_quote + ' %' : '–'));
-      stats.appendChild(el('div', 'total-label', 'Upgradequote'));
+      upgrades.appendChild(el('div', 'total-num', g.upgrade_quote != null ? g.upgrade_quote + ' %' : '–'));
+      upgrades.appendChild(el('div', 'total-label', 'Upgradequote'));
       if (g.avg_steps != null) {
-        stats.appendChild(el('div', 'group-sub', 'Ø ' + (g.avg_steps > 0 ? '+' : '') + String(g.avg_steps).replace('.', ',') + ' Kategorien'));
+        upgrades.appendChild(el('div', 'group-sub', 'Ø ' + (g.avg_steps > 0 ? '+' : '') + comma(g.avg_steps) + ' Kategorien'));
       }
-      upgrades.appendChild(stats);
+      if (g.suite_quote) {
+        upgrades.appendChild(el('div', 'group-sub', g.suite_quote + ' % davon in eine Suite'));
+      }
+      if (g.stays < 3) {
+        upgrades.appendChild(el('div', 'sample-note', 'nur ' + g.stays
+          + (g.stays === 1 ? ' Aufenthalt – wenig aussagekräftig' : ' Aufenthalte – wenig aussagekräftig')));
+      }
       grid.appendChild(upgrades);
 
       if (g.benefits.length) {
@@ -1504,7 +1842,7 @@ async function loadStats() {
           const row = el('div', 'bar-row');
           const top = el('div', 'bar-top');
           top.appendChild(el('span', null, b.name));
-          top.appendChild(el('span', 'muted', b.quote + ' %'));
+          top.appendChild(el('span', 'muted', g.stays >= 3 ? b.quote + ' %' : b.count + '×'));
           row.appendChild(top);
           const track = el('div', 'bar-track');
           const fill = el('div', 'bar-fill');
@@ -1521,8 +1859,9 @@ async function loadStats() {
         hotels.appendChild(el('h4', null, 'BESTE HÄUSER FÜR UPGRADES'));
         for (const h of g.top_hotels) {
           const row = el('div', 'top-hotel');
-          row.appendChild(el('span', null, h.name));
-          row.appendChild(el('span', 'n', '  ' + h.count + '× · bis +' + h.best));
+          row.appendChild(hotelLink(h.name, h.id));
+          row.appendChild(el('div', 'n', h.stays + (h.stays === 1 ? ' Aufenthalt' : ' Aufenthalte')
+            + ' · Ø +' + comma(h.avg_steps) + ' Kategorien'));
           hotels.appendChild(row);
         }
         grid.appendChild(hotels);
@@ -1598,13 +1937,25 @@ $('#log-open').addEventListener('click', async () => {
 
 /* ------------------------------------------------------------------ Start */
 
-if (state.pass && state.email) {
-  signIn(state.pass, state.email).catch(() => {
-    localStorage.removeItem('staylog.pass');
-    $('#gate-email').value = state.email || '';
-  });
-} else {
-  // Ohne Zugangsdaten schauen, ob die Seite gerade offen steht.
-  signIn('', '').catch(() => { /* dann bleibt die Anmeldemaske stehen */ });
+// Zuerst mit gespeicherten Zugangsdaten, sonst als Gast, sonst Anmeldemaske.
+async function start() {
+  // Nach dem Abmelden bewusst die Anmeldemaske zeigen, nicht die Gastansicht.
+  if (sessionStorage.getItem('staylog.gate')) {
+    sessionStorage.removeItem('staylog.gate');
+    return;
+  }
+  if (state.pass && state.email) {
+    try {
+      await signIn(state.pass, state.email);
+      return;
+    } catch {
+      localStorage.removeItem('staylog.pass');
+      $('#gate-email').value = state.email || '';
+    }
+  }
+  try {
+    await signIn('', '');
+  } catch { /* dann bleibt die Anmeldemaske stehen */ }
 }
+start();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

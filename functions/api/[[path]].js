@@ -374,7 +374,12 @@ Stadt: ${hotel.city || 'unbekannt'}
 Land: ${hotel.country || 'unbekannt'}
 ${hotel.brand ? 'Marke laut Kartendaten: ' + hotel.brand : ''}
 
-Nutze die Websuche. Bevorzuge die offizielle Seite der Hotelkette, sonst grosse Buchungsportale.
+Vorgehen:
+1. Finde zuerst die offizielle Webseite genau dieses Hauses (nicht die Startseite der Kette).
+2. Lies dort die Seite mit den Zimmern und Suiten und uebernimm die Kategorienamen exakt so,
+   wie das Hotel sie schreibt.
+3. Nur wenn die offizielle Seite nicht erreichbar ist, weiche auf grosse Buchungsportale aus
+   und vermerke das in "source".
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown, ohne Vor- oder Nachtext:
 
@@ -388,19 +393,37 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown, ohne Vor- oder Na
   "address": "Strasse Hausnummer, PLZ Ort, Land",
   "website": "https://... offizielle Seite genau dieses Hauses",
   "description": "zwei bis drei Saetze: Lage, Groesse, was das Haus ausmacht",
+  "rank_reliable": true,
   "rooms": [
-    {"name": "Classic Room", "rank": 1, "source_url": "https://..."},
-    {"name": "Deluxe Room", "rank": 2, "source_url": "https://..."}
+    {
+      "name": "Superior Room",
+      "type": "room",
+      "rank": 1,
+      "source": "official_hotel_website",
+      "source_url": "https://...",
+      "size_sqm": 26,
+      "bed_type": "King oder zwei Einzelbetten",
+      "max_occupancy": 2,
+      "description": "ein Satz, sonst null"
+    }
   ]
 }
 
-Regeln:
-- "rank" ist die Rangfolge der Kategorie, 1 ist die einfachste. Gleicher Rang ist erlaubt, wenn zwei Kategorien gleichwertig sind.
-- "name" ist der Kategoriename genau so, wie ihn das Hotel schreibt.
-- "program" ist das Vielfliegerprogramm bzw. Treueprogramm der Kette, z.B. "Marriott Bonvoy", "Hilton Honors", "IHG One Rewards", "World of Hyatt", "Accor ALL", "Radisson Rewards". Ist das Hotel unabhaengig, setze null.
+Regeln zur Reihenfolge – das ist der wichtigste Teil:
+- "rank" ist die Rangfolge, 1 ist die einfachste Kategorie. Gleicher Rang ist erlaubt,
+  wenn zwei Kategorien gleichwertig sind.
+- Leite die Reihenfolge NUR aus belegbaren Angaben ab: der Reihenfolge auf der Hotelseite,
+  Quadratmetern, Preisstaffelung, Etage, Ausstattung oder ausdruecklichen Hinweisen.
+- Rate die Reihenfolge NIEMALS allein aus dem Namen. Klingt eine Kategorie hochwertiger,
+  heisst das nichts.
+- Kannst du die Reihenfolge nicht belegen, setze "rank_reliable": false und vergib die
+  Raenge in der Reihenfolge, in der die Kategorien auf der Seite stehen.
+
+Weitere Regeln:
+- "type" ist "room" oder "suite".
+- Optionale Felder duerfen null sein. Erfinde nichts, um sie zu fuellen.
 - Jede Kategorie braucht die Quell-URL, aus der sie stammt.
-- "website" ist die Seite genau dieses Hauses, nicht die Startseite der Kette. Findest du sie nicht, setze null.
-- Findest du das Hotel nicht sicher, antworte {"found": false, "rooms": []}. Erfinde nichts.`;
+- Findest du das Hotel nicht sicher, antworte {"found": false, "rooms": []}.`;
 
 async function enrichHotel(env, hotel) {
   const key = env.ANTHROPIC_API_KEY;
@@ -454,12 +477,31 @@ async function runEnrichment(env, hotelId) {
       return;
     }
 
-    const inserts = result.rooms.slice(0, 25).map((r, i) =>
+    // Was der Nutzer bestaetigt hat, bleibt unangetastet.
+    const inserts = result.rooms.slice(0, 30).map((r, i) =>
       env.DB.prepare(
-        `INSERT INTO room_types (hotel_id, name, rank, confirmed, source, source_url, created_at)
-         VALUES (?, ?, ?, 0, 'llm', ?, ?)
-         ON CONFLICT(hotel_id, name) DO UPDATE SET rank = excluded.rank`
-      ).bind(hotelId, String(r.name).trim(), Number(r.rank) || i + 1, r.source_url || null, stamp)
+        `INSERT INTO room_types
+           (hotel_id, name, rank, confirmed, source, source_url, type, size_sqm,
+            bed_type, max_occupancy, description, researched_at, created_at)
+         VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(hotel_id, name) DO UPDATE SET
+           rank          = CASE WHEN room_types.confirmed = 1 THEN room_types.rank ELSE excluded.rank END,
+           type          = COALESCE(excluded.type, room_types.type),
+           size_sqm      = COALESCE(excluded.size_sqm, room_types.size_sqm),
+           bed_type      = COALESCE(excluded.bed_type, room_types.bed_type),
+           max_occupancy = COALESCE(excluded.max_occupancy, room_types.max_occupancy),
+           description   = COALESCE(excluded.description, room_types.description),
+           source_url    = COALESCE(excluded.source_url, room_types.source_url),
+           researched_at = excluded.researched_at`
+      ).bind(
+        hotelId, String(r.name).trim(), Number(r.rank) || i + 1,
+        r.source || 'llm', r.source_url || null,
+        r.type === 'suite' ? 'suite' : r.type === 'room' ? 'room' : null,
+        Number.isFinite(Number(r.size_sqm)) ? Number(r.size_sqm) : null,
+        r.bed_type || null,
+        Number.isFinite(Number(r.max_occupancy)) ? Number(r.max_occupancy) : null,
+        r.description || null, stamp, stamp
+      )
     );
 
     inserts.push(
@@ -468,7 +510,7 @@ async function runEnrichment(env, hotelId) {
            chain = COALESCE(?, chain), brand = COALESCE(?, brand),
            program = COALESCE(?, program), lounge = ?, breakfast_note = ?,
            address = COALESCE(?, address), website = COALESCE(?, website),
-           description = COALESCE(?, description)
+           description = COALESCE(?, description), rank_reliable = ?
          WHERE id = ?`
       ).bind(
         stamp,
@@ -480,6 +522,7 @@ async function runEnrichment(env, hotelId) {
         result.address || null,
         result.website || null,
         result.description || null,
+        result.rank_reliable === false ? 0 : 1,
         hotelId
       )
     );
@@ -619,6 +662,45 @@ async function commonsImages(query) {
     .slice(0, 6);
 }
 
+/* ---------------------------------------------------- Aufenthalte anreichern */
+
+async function withDetails(env, stays) {
+  if (!stays.length) return stays;
+  const ids = stays.map((s) => s.id);
+  const photos = await env.DB.prepare(
+    `SELECT * FROM photos WHERE stay_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`
+  ).bind(...ids).all();
+
+  const byStay = new Map();
+  for (const p of photos.results) {
+    if (!byStay.has(p.stay_id)) byStay.set(p.stay_id, []);
+    byStay.get(p.stay_id).push(p);
+  }
+  for (const s of stays) {
+    s.photos = byStay.get(s.id) || [];
+    s.benefits = normalizeBenefits(s.benefits);
+  }
+  return stays;
+}
+
+// Welche Kategorien sind Suiten? Fuer die Suite-Upgradequote.
+async function suiteLookup(env, hotelIds) {
+  const map = new Map();
+  if (!hotelIds.length) return map;
+  const rows = await env.DB.prepare(
+    `SELECT hotel_id, name, type FROM room_types
+      WHERE hotel_id IN (${hotelIds.map(() => '?').join(',')})`
+  ).bind(...hotelIds).all();
+  for (const r of rows.results) map.set(r.hotel_id + '|' + r.name, r.type);
+  return map;
+}
+
+const isSuiteUpgrade = (stay, lookup) =>
+  lookup.get(stay.hotel_id + '|' + stay.received_room) === 'suite'
+  && lookup.get(stay.hotel_id + '|' + stay.booked_room) !== 'suite';
+
+const share = (part, whole) => (whole ? Math.round((part / whole) * 100) : null);
+
 /* ------------------------------------------------------------- Endpunkte */
 
 export async function onRequest(context) {
@@ -649,7 +731,9 @@ export async function onRequest(context) {
       laenge_hinterlegt: expected.length,
       laenge_gesendet: sent.length,
       passt: expected.length > 0 && sent === expected,
+      offener_betrieb: openMode(env) || 'aus',
       adminpasswort_hinterlegt: Boolean(env.ADMIN_PASSWORD),
+      google_schluessel_hinterlegt: Boolean(env.GOOGLE_API_KEY),
       anthropic_schluessel_hinterlegt: Boolean(env.ANTHROPIC_API_KEY),
       datenbank_verbunden: Boolean(env.DB),
       bilderspeicher_verbunden: Boolean(env.PHOTOS),
@@ -852,19 +936,31 @@ export async function onRequest(context) {
         if (!hotel) return fail('Hotel nicht gefunden', 404);
 
         const rows = await env.DB.prepare(
-          'SELECT * FROM stays WHERE hotel_id = ? ORDER BY checkin DESC'
+          'SELECT * FROM stays WHERE hotel_id = ? ORDER BY checkin DESC, id DESC'
         ).bind(hotelId).all();
         const stays = rows.results;
+        const lookup = await suiteLookup(env, [hotelId]);
 
         const withRank = stays.filter((s) => s.upgrade_steps != null);
         const upgraded = withRank.filter((s) => s.upgrade_steps > 0);
-        const bigUpgrade = withRank.filter((s) => s.upgrade_steps > 1);
+        const suites = stays.filter((s) => isSuiteUpgrade(s, lookup));
 
+        // Aufschluesselung je Statuslevel – das ist die eigentliche Frage der Seite.
+        const byStatus = new Map();
         const benefitCount = new Map();
         const benefitValues = new Map();
         const pairs = new Map();
 
         for (const s of stays) {
+          const key = [s.program, s.status_level].filter(Boolean).join(' · ') || 'ohne Status';
+          const entry = byStatus.get(key) || { label: key, program: s.program, status: s.status_level, stays: 0, upgraded: 0, steps: [] };
+          entry.stays += 1;
+          if (s.upgrade_steps != null) {
+            entry.steps.push(s.upgrade_steps);
+            if (s.upgrade_steps > 0) entry.upgraded += 1;
+          }
+          byStatus.set(key, entry);
+
           for (const b of normalizeBenefits(s.benefits)) {
             benefitCount.set(b.name, (benefitCount.get(b.name) || 0) + 1);
             if (b.value) {
@@ -873,30 +969,42 @@ export async function onRequest(context) {
             }
           }
           if (s.booked_room && s.received_room) {
-            const key = s.booked_room + ' → ' + s.received_room;
-            const entry = pairs.get(key) || { booked: s.booked_room, received: s.received_room, count: 0, steps: s.upgrade_steps };
-            entry.count += 1;
-            pairs.set(key, entry);
+            const pairKey = s.booked_room + ' → ' + s.received_room;
+            const p = pairs.get(pairKey)
+              || { booked: s.booked_room, received: s.received_room, count: 0, steps: s.upgrade_steps };
+            p.count += 1;
+            pairs.set(pairKey, p);
           }
         }
 
         return json({
           hotel,
           stays: stays.length,
-          upgrade_quote: stays.length ? Math.round((upgraded.length / stays.length) * 100) : null,
-          mehr_als_eine: stays.length ? Math.round((bigUpgrade.length / stays.length) * 100) : null,
+          people: new Set(stays.map((s) => s.author)).size,
+          upgrade_quote: share(upgraded.length, stays.length),
+          suite_quote: share(suites.length, stays.length),
           avg_steps: withRank.length
             ? Math.round((withRank.reduce((sum, s) => sum + s.upgrade_steps, 0) / withRank.length) * 10) / 10
             : null,
+          by_status: [...byStatus.values()].map((g) => ({
+            label: g.label,
+            program: g.program,
+            status: g.status,
+            stays: g.stays,
+            upgrade_quote: share(g.upgraded, g.stays),
+            avg_steps: g.steps.length
+              ? Math.round((g.steps.reduce((a, b) => a + b, 0) / g.steps.length) * 10) / 10
+              : null,
+          })).sort((a, b) => b.stays - a.stays),
           benefits: [...benefitCount.entries()]
             .map(([name, count]) => ({
-              name,
-              count,
-              quote: Math.round((count / stays.length) * 100),
-              values: (benefitValues.get(name) || []).slice(0, 8),
+              name, count,
+              quote: share(count, stays.length),
+              values: [...new Set(benefitValues.get(name) || [])].slice(0, 5),
             }))
             .sort((a, b) => b.count - a.count),
-          pairs: [...pairs.values()].sort((a, b) => b.count - a.count),
+          pairs: [...pairs.values()].sort((a, b) => b.count - a.count).slice(0, 10),
+          recent: await withDetails(env, stays.slice(0, 6)),
         });
       }
 
@@ -912,13 +1020,26 @@ export async function onRequest(context) {
 
         for (const r of b.rooms || []) {
           if (!r.name) continue;
+          const confirmed = r.confirmed === false ? 0 : 1;
           ops.push(
             env.DB.prepare(
-              `INSERT INTO room_types (hotel_id, name, rank, confirmed, source, created_at)
-               VALUES (?, ?, ?, 1, ?, ?)
-               ON CONFLICT(hotel_id, name) DO UPDATE SET confirmed = 1, rank = excluded.rank`
-            ).bind(hotelId, String(r.name).trim(), Number(r.rank) || 0, r.source || 'user', stamp)
+              `INSERT INTO room_types (hotel_id, name, rank, confirmed, source, type, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(hotel_id, name) DO UPDATE SET
+                 confirmed = excluded.confirmed,
+                 rank = excluded.rank,
+                 type = COALESCE(excluded.type, room_types.type)`
+            ).bind(
+              hotelId, String(r.name).trim(), Number(r.rank) || 0, confirmed,
+              r.source || 'user',
+              r.type === 'suite' ? 'suite' : r.type === 'room' ? 'room' : null,
+              stamp
+            )
           );
+        }
+        // Korrigiert der Nutzer die Reihenfolge, gilt sie ab jetzt als gesichert.
+        if (b.rank_confirmed) {
+          ops.push(env.DB.prepare('UPDATE hotels SET rank_reliable = 1 WHERE id = ?').bind(hotelId));
         }
         for (const name of b.remove || []) {
           ops.push(env.DB.prepare('DELETE FROM room_types WHERE hotel_id = ? AND name = ?').bind(hotelId, name));
@@ -961,23 +1082,7 @@ export async function onRequest(context) {
           ORDER BY s.checkin DESC, s.id DESC LIMIT 300`
       ).bind(...bind).all();
 
-      const stays = rows.results;
-      if (stays.length) {
-        const ids = stays.map((s) => s.id);
-        const photos = await env.DB.prepare(
-          `SELECT * FROM photos WHERE stay_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`
-        ).bind(...ids).all();
-        const byStay = new Map();
-        for (const p of photos.results) {
-          if (!byStay.has(p.stay_id)) byStay.set(p.stay_id, []);
-          byStay.get(p.stay_id).push(p);
-        }
-        for (const s of stays) {
-          s.photos = byStay.get(s.id) || [];
-          s.benefits = normalizeBenefits(s.benefits);
-        }
-      }
-      return json(stays);
+      return json(await withDetails(env, rows.results));
     }
 
     if (path === '/stays' && method === 'POST') {
@@ -1009,6 +1114,38 @@ export async function onRequest(context) {
     }
 
     const stayMatch = path.match(/^\/stays\/(\d+)$/);
+
+    if (stayMatch && method === 'PUT') {
+      const id = Number(stayMatch[1]);
+      const stay = await env.DB.prepare('SELECT * FROM stays WHERE id = ?').bind(id).first();
+      if (!stay) return fail('Aufenthalt nicht gefunden', 404);
+      if (stay.author !== user.name) return fail('Das ist nicht dein Eintrag', 403);
+
+      const b = await request.json();
+      const ranks = await env.DB.prepare('SELECT name, rank FROM room_types WHERE hotel_id = ?')
+        .bind(stay.hotel_id).all();
+      const rankOf = new Map(ranks.results.map((r) => [r.name, r.rank]));
+      const bookedRank = b.booked_room ? rankOf.get(b.booked_room) ?? null : null;
+      const receivedRank = b.received_room ? rankOf.get(b.received_room) ?? null : null;
+      const steps = bookedRank != null && receivedRank != null ? receivedRank - bookedRank : null;
+
+      await env.DB.prepare(
+        `UPDATE stays SET program = ?, status_level = ?, checkin = ?, checkout = ?, nights = ?,
+           booked_room = ?, booked_rank = ?, received_room = ?, received_rank = ?, upgrade_steps = ?,
+           price = ?, currency = ?, benefits = ?, notes = ?
+         WHERE id = ?`
+      ).bind(
+        b.program || null, b.status_level || null,
+        b.checkin || null, b.checkout || null, nightsBetween(b.checkin, b.checkout),
+        b.booked_room || null, bookedRank, b.received_room || null, receivedRank, steps,
+        b.price != null && b.price !== '' ? Number(b.price) : null, b.currency || 'EUR',
+        JSON.stringify(normalizeBenefits(b.benefits)), b.notes || null, id
+      ).run();
+
+      waitUntil(logEvent(env, request, 'stay_edit', user.name, 'Aufenthalt ' + id));
+      return json({ id });
+    }
+
     if (stayMatch && method === 'DELETE') {
       const id = Number(stayMatch[1]);
       const stay = await env.DB.prepare('SELECT * FROM stays WHERE id = ?').bind(id).first();
@@ -1114,6 +1251,7 @@ export async function onRequest(context) {
           ${author ? 'WHERE s.author = ?' : ''}`
       ).bind(...(author ? [author] : [])).all();
       const stays = rows.results;
+      const lookup = await suiteLookup(env, [...new Set(stays.map((s) => s.hotel_id))]);
 
       const group = new Map();
       for (const s of stays) {
@@ -1122,39 +1260,49 @@ export async function onRequest(context) {
           group.set(key, {
             program: s.program || 'ohne Programm',
             status: s.status_level || 'ohne Status',
-            stays: 0, upgraded: 0, steps: [], benefits: new Map(), hotels: new Map(),
+            stays: 0, upgraded: 0, suites: 0, steps: [],
+            benefits: new Map(), hotels: new Map(),
           });
         }
         const g = group.get(key);
         g.stays += 1;
+        if (isSuiteUpgrade(s, lookup)) g.suites += 1;
+
+        const hotel = g.hotels.get(s.hotel_name)
+          || { id: s.hotel_id, name: s.hotel_name, city: s.city, stays: 0, steps: [] };
+        hotel.stays += 1;
         if (s.upgrade_steps != null) {
           g.steps.push(s.upgrade_steps);
-          if (s.upgrade_steps > 0) {
-            g.upgraded += 1;
-            const h = g.hotels.get(s.hotel_name) || { name: s.hotel_name, city: s.city, count: 0, best: 0 };
-            h.count += 1;
-            h.best = Math.max(h.best, s.upgrade_steps);
-            g.hotels.set(s.hotel_name, h);
-          }
+          hotel.steps.push(s.upgrade_steps);
+          if (s.upgrade_steps > 0) g.upgraded += 1;
         }
+        g.hotels.set(s.hotel_name, hotel);
+
         for (const b of normalizeBenefits(s.benefits)) {
           g.benefits.set(b.name, (g.benefits.get(b.name) || 0) + 1);
         }
       }
 
+      const average = (list) => (list.length
+        ? Math.round((list.reduce((a, b) => a + b, 0) / list.length) * 10) / 10
+        : null);
+
       const groups = [...group.values()].map((g) => ({
         program: g.program,
         status: g.status,
         stays: g.stays,
-        upgrade_quote: g.stays ? Math.round((g.upgraded / g.stays) * 100) : null,
-        avg_steps: g.steps.length
-          ? Math.round((g.steps.reduce((a, b) => a + b, 0) / g.steps.length) * 10) / 10
-          : null,
+        upgrade_quote: share(g.upgraded, g.stays),
+        suite_quote: share(g.suites, g.stays),
+        avg_steps: average(g.steps),
         benefits: [...g.benefits.entries()]
-          .map(([name, count]) => ({ name, quote: Math.round((count / g.stays) * 100) }))
+          .map(([name, count]) => ({ name, count, quote: share(count, g.stays) }))
           .sort((a, b) => b.quote - a.quote)
-          .slice(0, 6),
-        top_hotels: [...g.hotels.values()].sort((a, b) => b.count - a.count || b.best - a.best).slice(0, 3),
+          .slice(0, 8),
+        top_hotels: [...g.hotels.values()]
+          .map((h) => ({ id: h.id, name: h.name, city: h.city, stays: h.stays, avg_steps: average(h.steps) }))
+          .filter((h) => h.avg_steps != null && h.avg_steps > 0)
+          .sort((a, b) => b.avg_steps - a.avg_steps || b.stays - a.stays)
+          .slice(0, 3),
       })).sort((a, b) => b.stays - a.stays);
 
       const withRank = stays.filter((s) => s.upgrade_steps != null);
@@ -1163,9 +1311,7 @@ export async function onRequest(context) {
           stays: stays.length,
           hotels: new Set(stays.map((s) => s.hotel_id)).size,
           nights: stays.reduce((sum, s) => sum + (s.nights || 0), 0),
-          upgrade_quote: stays.length
-            ? Math.round((withRank.filter((s) => s.upgrade_steps > 0).length / stays.length) * 100)
-            : null,
+          upgrade_quote: share(withRank.filter((s) => s.upgrade_steps > 0).length, stays.length),
         },
         groups,
       });

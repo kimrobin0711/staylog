@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS hotels (
   website        TEXT,
   description    TEXT,
   google_place_id TEXT,
+  rank_reliable   INTEGER,                          -- 1 Reihenfolge gesichert, 0 unsicher
   enrich_status  TEXT NOT NULL DEFAULT 'pending',  -- pending | running | ready | failed
   enrich_error   TEXT,
   enriched_at    TEXT,
@@ -36,9 +37,16 @@ CREATE TABLE IF NOT EXISTS room_types (
   name        TEXT NOT NULL,
   rank        INTEGER NOT NULL DEFAULT 0,
   confirmed   INTEGER NOT NULL DEFAULT 0,          -- 0 = Vorschlag, 1 = bestaetigt
-  source      TEXT,                                -- llm | user
-  source_url  TEXT,
-  created_at  TEXT NOT NULL
+  source        TEXT,                              -- official_hotel_website | llm | user
+  source_url    TEXT,
+  type          TEXT,                              -- room | suite
+  size_sqm      INTEGER,
+  bed_type      TEXT,
+  max_occupancy INTEGER,
+  description   TEXT,
+  researched_at TEXT,
+  aliases       TEXT,                              -- JSON-Array: andere Schreibweisen
+  created_at    TEXT NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS room_types_uniq ON room_types(hotel_id, name);

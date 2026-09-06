@@ -712,3 +712,8 @@ body.is-guest .drawer-body > .note { display: none; }
 .top-hotel .hotel-link { font-weight: 600; }
 
 .local-name { color: var(--ink-soft); font-size: .82rem; }
+
+.rooms-error {
+  font-size: .82rem; color: var(--down); margin-bottom: 12px;
+  word-break: break-word;
+}

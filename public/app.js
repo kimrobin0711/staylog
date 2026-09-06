@@ -1472,6 +1472,9 @@ function renderRooms() {
     status.textContent = 'nichts gefunden';
     list.appendChild(el('p', 'rooms-failed',
       'Keine Zimmerkategorien gefunden. Die Liste unten ist die allgemeine Leiter der Marke – ergänze oder ersetze sie.'));
+    if (state.hotel?.enrich_error) {
+      list.appendChild(el('p', 'rooms-error', 'Grund: ' + state.hotel.enrich_error));
+    }
     const add = el('button', 'btn btn-quiet', 'Zimmerkategorie selbst hinzufügen');
     add.type = 'button';
     add.addEventListener('click', () => {

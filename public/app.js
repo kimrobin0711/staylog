@@ -189,10 +189,14 @@ function fuzzyMatch(name, query) {
   const words = normalize(name).split(' ').filter(Boolean);
   const parts = normalize(query).split(' ').filter(Boolean);
   if (!parts.length) return true;
+
   return parts.every((part) => {
-    const tolerance = part.length <= 4 ? 0 : part.length <= 7 ? 1 : 2;
+    const tolerance = part.length <= 4 ? 0 : part.length <= 8 ? 1 : 2;
     return words.some((word) => {
-      if (word.includes(part) || part.includes(word)) return true;
+      if (word.includes(part)) return true;
+      // Ein sehr kurzes Wort darf nicht auf eine lange Eingabe passen:
+      // sonst trifft "a" aus "[Á] Hotel" die Suche nach "radisso".
+      if (part.includes(word) && word.length >= Math.max(4, part.length - 2)) return true;
       if (!tolerance) return false;
       if (distance(word, part) <= tolerance) return true;
       return distance(word.slice(0, part.length + tolerance), part) <= tolerance;

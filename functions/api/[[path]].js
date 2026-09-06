@@ -337,6 +337,7 @@ async function hotelsFromNominatim(q, lat, lon) {
   url.searchParams.set('limit', '15');
   url.searchParams.set('extratags', '1');
   url.searchParams.set('namedetails', '1');
+  url.searchParams.set('addressdetails', '1');
   if (lat && lon) {
     const d = 0.4;
     url.searchParams.set('viewbox', [lon - d, lat + d, lon + d, lat - d].join(','));
@@ -359,7 +360,7 @@ async function hotelsFromNominatim(q, lat, lon) {
         source_id: (r.osm_type || 'node') + '/' + r.osm_id,
         name,
         local_name: names.name && names.name !== name ? names.name : null,
-        place: (r.display_name || '').split(',').slice(-3, -2)[0]?.trim() || null,
+        place: r.address?.city || r.address?.town || r.address?.village || null,
         brand,
         program: guessProgram(brand) || guessProgram(name),
         lat: Number(r.lat),

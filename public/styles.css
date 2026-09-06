@@ -1022,3 +1022,10 @@ body.is-guest .drawer-body > .note { display: none; }
 #admin-result { margin-top: 12px; }
 
 .version-note { margin-top: 16px; font-size: .8rem; color: var(--ink-soft); }
+
+/* Bilderreihe an allen Stellen gleich */
+.hotel-gallery-slot { margin: 14px 0 4px; }
+.hotel-gallery-slot .rating { margin: 0 0 12px; }
+.hotel-gallery-slot .gallery { margin-top: 0; }
+#detail-context .hotel-gallery-slot .gallery figure { width: 150px; }
+#detail-context .hotel-gallery-slot .gallery img { width: 150px; height: 100px; }

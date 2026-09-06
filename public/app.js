@@ -118,8 +118,26 @@ const COUNTRY_CODES = [
   'PS', 'PT', 'PW', 'PY', 'QA', 'RE', 'RO', 'RS', 'RU', 'RW', 'SA', 'SB', 'SC', 'SD', 'SE', 'SG', 'SH', 'SI',
   'SJ', 'SK', 'SL', 'SM', 'SN', 'SO', 'SR', 'SS', 'ST', 'SV', 'SX', 'SY', 'SZ', 'TC', 'TD', 'TF', 'TG', 'TH',
   'TJ', 'TK', 'TL', 'TM', 'TN', 'TO', 'TR', 'TT', 'TV', 'TW', 'TZ', 'UA', 'UG', 'US', 'UY', 'UZ', 'VA', 'VC',
-  'VE', 'VG', 'VI', 'VN', 'VU', 'WF', 'WS', 'YE', 'YT', 'ZA', 'ZM', 'ZW',
+  'VE', 'VG', 'VI', 'VN', 'VU', 'WF', 'WS', 'XK', 'YE', 'YT', 'ZA', 'ZM', 'ZW',
 ];
+
+// Wo der amtliche Name sperrig ist oder fehlt, nehmen wir den gebräuchlichen.
+const COUNTRY_NAMES = {
+  XK: 'Kosovo',
+  HK: 'Hongkong',
+  MO: 'Macau',
+  PS: 'Palästina',
+  TW: 'Taiwan',
+  VA: 'Vatikan',
+  SZ: 'Eswatini',
+  TL: 'Osttimor',
+  CD: 'Kongo (Kinshasa)',
+  CG: 'Kongo (Brazzaville)',
+  MM: 'Myanmar',
+  CI: 'Elfenbeinküste',
+  CV: 'Kap Verde',
+  BQ: 'Bonaire, Saba, Sint Eustatius',
+};
 
 const COUNTRIES = (() => {
   let names = null;
@@ -127,9 +145,19 @@ const COUNTRIES = (() => {
     names = new Intl.DisplayNames(['de'], { type: 'region' });
   } catch { /* dann eben die Codes */ }
 
+  const nameOf = (code) => {
+    if (COUNTRY_NAMES[code]) return COUNTRY_NAMES[code];
+    if (!names) return code;
+    try {
+      const found = names.of(code);
+      return found && found !== code ? found : code;
+    } catch {
+      return code;
+    }
+  };
+
   return COUNTRY_CODES
-    .map((code) => [code, (names && names.of(code)) || code])
-    .filter(([code, name]) => name && name !== code.toUpperCase() || !names)
+    .map((code) => [code, nameOf(code)])
     .sort((a, b) => a[1].localeCompare(b[1], 'de'));
 })();
 
@@ -1123,6 +1151,10 @@ async function loadHotelContext(stay) {
   box.innerHTML = '';
   box.appendChild(el('h4', null, 'In diesem Haus'));
 
+  const bilder = el('div', 'hotel-gallery-slot');
+  box.appendChild(bilder);
+  loadHotelGallery(stay.hotel_id, bilder, stay.hotel_name);
+
   const grid = el('div', 'mini-kpis');
   const mini = (num, label) => {
     const cell = el('div', 'mini-kpi');
@@ -1278,6 +1310,11 @@ async function showHotel(hotelId) {
     if (data.hotel.lounge === 1) badges.appendChild(el('span', 'badge', 'Lounge vorhanden'));
     if (badges.children.length) box.appendChild(badges);
 
+    // Bilder direkt unter den Namen, danach Beschreibung und Links.
+    const bilder = el('div', 'hotel-gallery-slot');
+    box.appendChild(bilder);
+    loadHotelGallery(hotelId, bilder, data.hotel.name);
+
     if (data.hotel.description) {
       const desc = el('p', 'hotel-desc', data.hotel.description);
       desc.style.marginTop = '16px';
@@ -1406,6 +1443,20 @@ async function showHotel(hotelId) {
     box.innerHTML = '';
     box.appendChild(el('p', 'empty', e.message));
   }
+}
+
+// Füllt einen Platzhalter mit Bewertung und Bildern, sobald sie da sind.
+async function loadHotelGallery(hotelId, slot, name) {
+  try {
+    const data = await hotelImages(hotelId);
+    if (!document.body.contains(slot)) return;
+
+    const line = ratingLine(data);
+    if (line) slot.appendChild(line);
+
+    const strip = galleryStrip(data, name);
+    if (strip) slot.appendChild(strip);
+  } catch { /* ohne Bilder geht es auch */ }
 }
 
 function section(title) {
@@ -1795,6 +1846,62 @@ function renderChosenHotel() {
   if (hotel.breakfast_note) links.appendChild(el('span', null, hotel.breakfast_note));
 }
 
+// Holt Bilder und Bewertung eines Hotels – einmal je Sitzung.
+async function hotelImages(hotelId) {
+  if (state.imageCache[hotelId]) return state.imageCache[hotelId];
+  const data = await api('/hotels/' + hotelId + '/images');
+  state.imageCache[hotelId] = data;
+  return data;
+}
+
+// Baut eine Bilderreihe. Gibt null zurück, wenn es nichts zu zeigen gibt.
+function galleryStrip(data, alt) {
+  if (!data.photos?.length) return null;
+  const strip = el('div', 'gallery');
+  for (const img of data.photos) {
+    const fig = document.createElement('figure');
+    const image = document.createElement('img');
+    image.src = img.thumb;
+    image.alt = alt;
+    image.loading = 'lazy';
+    image.addEventListener('error', () => fig.remove());
+    fig.appendChild(image);
+
+    const credit = el('figcaption');
+    const parts = [img.author, img.license].filter(Boolean).join(' · ');
+    if (img.page) {
+      const a = el('a', null, parts || 'Quelle');
+      a.href = img.page;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      credit.appendChild(a);
+    } else {
+      credit.textContent = parts;
+    }
+    fig.appendChild(credit);
+    strip.appendChild(fig);
+  }
+  return strip;
+}
+
+// Bewertung als Sterne mit Anzahl.
+function ratingLine(data) {
+  if (data.rating == null) return null;
+  const line = el('p', 'rating');
+  const full = Math.round(data.rating);
+  line.appendChild(el('span', 'stars', '★'.repeat(full) + '☆'.repeat(5 - full)));
+  line.appendChild(el('span', null, ' ' + data.rating.toFixed(1)));
+  if (data.rating_count) line.appendChild(el('span', 'n', ' · ' + data.rating_count + ' Bewertungen bei Google'));
+  if (data.maps_uri) {
+    const a = el('a', null, ' ansehen');
+    a.href = data.maps_uri;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    line.appendChild(a);
+  }
+  return line;
+}
+
 async function loadGallery() {
   const box = $('#chosen-gallery');
   const rating = $('#chosen-rating');
@@ -1803,56 +1910,26 @@ async function loadGallery() {
   document.querySelectorAll('.gallery-note').forEach((n) => n.remove());
   if (!state.hotel) return;
 
-  // Vor dem Ende der Recherche kennen wir die Hotelseite nicht – dann lohnt der
-  // Versuch nicht, und eine Meldung "keine Bilder" waere schlicht verfrueht.
   if (['pending', 'running'].includes(state.hotel.enrich_status)) return;
 
   try {
-    // Einmal je Hotel und Sitzung – jeder Aufruf kostet bei Google Geld.
-    const cached = state.imageCache[state.hotel.id];
-    const data = cached || await api('/hotels/' + state.hotel.id + '/images');
-    if (!cached) state.imageCache[state.hotel.id] = data;
+    const data = await hotelImages(state.hotel.id);
 
-    if (data.rating != null) {
-      rating.innerHTML = '';
-      const full = Math.round(data.rating);
-      rating.appendChild(el('span', 'stars', '★'.repeat(full) + '☆'.repeat(5 - full)));
-      rating.appendChild(el('span', null, ' ' + data.rating.toFixed(1)));
-      if (data.rating_count) rating.appendChild(el('span', 'n', ' · ' + data.rating_count + ' Bewertungen bei Google'));
-      if (data.maps_uri) {
-        const a = el('a', null, ' ansehen');
-        a.href = data.maps_uri; a.target = '_blank'; a.rel = 'noopener';
-        rating.appendChild(a);
-      }
-      rating.hidden = false;
+    const line = ratingLine(data);
+    if (line) {
+      rating.replaceWith(line);
+      line.id = 'chosen-rating';
+      line.hidden = false;
     }
 
-    for (const img of data.photos || []) {
-      const fig = document.createElement('figure');
-      const image = document.createElement('img');
-      image.src = img.thumb;
-      image.alt = state.hotel.name;
-      image.loading = 'lazy';
-      image.addEventListener('error', () => fig.remove());
-      fig.appendChild(image);
-      const credit = el('figcaption');
-      const parts = [img.author, img.license].filter(Boolean).join(' · ');
-      if (img.page) {
-        const a = el('a', null, parts || 'Quelle');
-        a.href = img.page; a.target = '_blank'; a.rel = 'noopener';
-        credit.appendChild(a);
-      } else {
-        credit.textContent = parts;
-      }
-      fig.appendChild(credit);
-      box.appendChild(fig);
-    }
+    const strip = galleryStrip(data, state.hotel.name);
+    if (strip) box.replaceWith(strip), strip.id = 'chosen-gallery';
 
     if (data.limit_erreicht) {
-      box.insertAdjacentElement('afterend', el('p', 'gallery-note',
+      $('#chosen-gallery').insertAdjacentElement('afterend', el('p', 'gallery-note',
         'Das monatliche Limit für Bilddienste ist erreicht. Ab dem Ersten geht es weiter.'));
-    } else if (!(data.photos || []).length && data.google_aktiv) {
-      box.insertAdjacentElement('afterend', el('p', 'gallery-note',
+    } else if (!strip && data.google_aktiv) {
+      $('#chosen-gallery').insertAdjacentElement('afterend', el('p', 'gallery-note',
         'Zu diesem Haus wurden keine Bilder gefunden.'));
     }
   } catch { /* ohne Bilder geht es auch */ }

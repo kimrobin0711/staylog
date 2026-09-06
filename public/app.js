@@ -32,6 +32,8 @@ const state = {
   guest: false,
   mode: '',
   editing: null,
+  pollStarted: null,
+  pollGaveUp: false,
 };
 
 /* ------------------------------------------------------------ Stammdaten */
@@ -1279,6 +1281,14 @@ function renderChosenHotel() {
 
   const links = $('#chosen-links');
   links.innerHTML = '';
+
+  // Solange recherchiert wird, sagen wir das – statt eine leere Karte zu zeigen.
+  const busy = !state.skipEnrichment && ['pending', 'running'].includes(hotel.enrich_status);
+  if (busy && !hotel.address && !hotel.website) {
+    const wait = el('span', null, 'Adresse, Beschreibung und Bilder werden recherchiert …');
+    links.appendChild(wait);
+  }
+
   if (hotel.address) links.appendChild(el('span', null, hotel.address));
   if (hotel.website) {
     const a = el('a', null, 'Hotelseite');
@@ -1302,6 +1312,10 @@ async function loadGallery() {
   rating.hidden = true;
   document.querySelectorAll('.gallery-note').forEach((n) => n.remove());
   if (!state.hotel) return;
+
+  // Vor dem Ende der Recherche kennen wir die Hotelseite nicht – dann lohnt der
+  // Versuch nicht, und eine Meldung "keine Bilder" waere schlicht verfrueht.
+  if (['pending', 'running'].includes(state.hotel.enrich_status)) return;
 
   try {
     const data = await api('/hotels/' + state.hotel.id + '/images');
@@ -1369,12 +1383,24 @@ function renderRooms() {
   refresh.hidden = busy;
 
   if (busy) {
-    status.textContent = 'läuft …';
+    const seconds = state.pollStarted ? Math.round((Date.now() - state.pollStarted) / 1000) : 0;
+    status.textContent = state.pollGaveUp ? 'abgebrochen' : 'läuft …';
+
     const wait = el('div', 'rooms-wait');
-    wait.appendChild(el('span', 'spinner'));
+    if (!state.pollGaveUp) wait.appendChild(el('span', 'spinner'));
     const texts = el('div');
-    texts.appendChild(el('div', null, 'Zimmerkategorien werden auf der Hotelwebseite recherchiert …'));
-    texts.appendChild(el('div', 'rooms-wait-note', 'Das kann einen Moment dauern. Du kannst den Rest schon ausfüllen.'));
+
+    if (state.pollGaveUp) {
+      texts.appendChild(el('div', null, 'Die Recherche antwortet nicht mehr.'));
+      texts.appendChild(el('div', 'rooms-wait-note',
+        'Trag die Kategorien unten selbst ein oder versuch es später noch einmal.'));
+    } else {
+      texts.appendChild(el('div', null, 'Zimmerkategorien werden auf der Hotelwebseite recherchiert …'));
+      texts.appendChild(el('div', 'rooms-wait-note',
+        seconds > 45
+          ? 'Dauert bei diesem Haus länger als üblich (' + seconds + ' Sekunden). Du kannst jederzeit selbst eintragen.'
+          : 'Das kann einen Moment dauern. Du kannst den Rest schon ausfüllen.'));
+    }
     wait.appendChild(texts);
     list.appendChild(wait);
 
@@ -1382,11 +1408,14 @@ function renderRooms() {
     skip.type = 'button';
     skip.addEventListener('click', () => {
       state.skipEnrichment = true;
+      state.pollGaveUp = false;
       clearInterval(state.pollTimer);
       renderRooms();
     });
     list.appendChild(skip);
-    fillRoomSelects([], 'wird recherchiert …');
+
+    // Die Auswahlfelder bleiben gesperrt, aber der Grund steht jetzt drin.
+    fillRoomSelects([], state.pollGaveUp ? 'Recherche abgebrochen' : 'wird recherchiert …');
     return;
   }
 
@@ -1575,11 +1604,23 @@ $('#room-add').addEventListener('click', async () => {
 
 function watchEnrichment() {
   clearInterval(state.pollTimer);
+  state.pollGaveUp = false;
   if (!state.hotel || ['ready', 'failed'].includes(state.hotel.enrich_status)) return;
+
+  state.pollStarted = Date.now();
   let tries = 0;
+
   state.pollTimer = setInterval(async () => {
     tries += 1;
-    if (tries > 20 || !state.hotel) { clearInterval(state.pollTimer); return; }
+    if (!state.hotel) { clearInterval(state.pollTimer); return; }
+
+    // Nach drei Minuten hoeren wir auf und sagen es auch.
+    if (tries > 45) {
+      clearInterval(state.pollTimer);
+      state.pollGaveUp = true;
+      renderRooms();
+      return;
+    }
     try {
       const res = await api('/hotels/' + state.hotel.id);
       state.hotel = res.hotel;

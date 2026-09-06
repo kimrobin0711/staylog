@@ -431,6 +431,7 @@ async function enrichHotel(env, hotel) {
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    signal: AbortSignal.timeout(70000),   // haengt der Aufruf, brechen wir sauber ab
     headers: {
       'content-type': 'application/json',
       'x-api-key': key,
@@ -463,8 +464,10 @@ async function runEnrichment(env, hotelId) {
   const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
   if (!hotel) return;
 
-  await env.DB.prepare("UPDATE hotels SET enrich_status = 'running', enrich_error = NULL WHERE id = ?")
-    .bind(hotelId).run();
+  // enriched_at dient hier als Startzeit, damit haengende Laeufe erkennbar sind.
+  await env.DB.prepare(
+    "UPDATE hotels SET enrich_status = 'running', enrich_error = NULL, enriched_at = ? WHERE id = ?"
+  ).bind(now(), hotelId).run();
 
   try {
     const result = await enrichHotel(env, hotel);
@@ -900,8 +903,17 @@ export async function onRequest(context) {
       const sub = hotelMatch[2] || '';
 
       if (sub === '' && method === 'GET') {
-        const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
+        let hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
         if (!hotel) return fail('Hotel nicht gefunden', 404);
+
+        // Laeuft eine Recherche laenger als drei Minuten, ist sie abgebrochen.
+        if (hotel.enrich_status === 'running' && hotel.enriched_at
+            && Date.now() - Date.parse(hotel.enriched_at) > 180000) {
+          await env.DB.prepare(
+            "UPDATE hotels SET enrich_status = 'failed', enrich_error = ? WHERE id = ?"
+          ).bind('Die Recherche wurde nicht zu Ende gefuehrt', hotelId).run();
+          hotel = { ...hotel, enrich_status: 'failed', enrich_error: 'abgebrochen' };
+        }
         const rooms = await env.DB.prepare('SELECT * FROM room_types WHERE hotel_id = ? ORDER BY rank, name')
           .bind(hotelId).all();
         return json({ hotel, rooms: rooms.results });

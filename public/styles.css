@@ -912,3 +912,30 @@ body.is-guest .drawer-body > .note { display: none; }
   .btn-filter { padding: 8px 11px; }
   .step input, .step .options, .step .option { max-width: none; }
 }
+
+/* ------------------------------------- Hotelkontext in der Detailansicht */
+
+.mini-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 22px; }
+.mini-kpi { background: var(--card-sunk); border-radius: var(--r-sm); padding: 11px 13px; }
+.mini-kpi .num { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.mini-kpi .lbl { font-size: .76rem; color: var(--ink-soft); margin-top: 3px; }
+
+.mini-list { display: flex; flex-direction: column; margin-bottom: 20px; }
+.mini-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; cursor: pointer;
+  border: 0; border-bottom: 1px solid var(--line-soft); background: none;
+  padding: 11px 4px;
+}
+.mini-row:last-child { border-bottom: 0; }
+.mini-row:hover { background: var(--card-sunk); }
+.mini-row .who { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+.mini-row .badge { font-size: .7rem; padding: 2px 8px; }
+.mini-when { font-size: .78rem; color: var(--ink-soft); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.mini-rooms { font-size: .84rem; margin-top: 3px; }
+.mini-row .r-step { flex: none; font-weight: 600; }
+.mini-row .r-step.up { color: var(--gold); }
+.mini-row .r-step.down { color: var(--down); }
+
+#detail-context h4 { margin-top: 22px; }
+#detail-context h4:first-child { margin-top: 0; }

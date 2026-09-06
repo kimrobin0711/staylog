@@ -35,6 +35,7 @@ const state = {
   view: localStorage.getItem('staylog.view') || 'cards',
   sort: { key: 'date', dir: 'desc' },
   hotelPage: null,
+  contextCache: {},
   groupBy: localStorage.getItem('staylog.group') || '',
   pollStarted: null,
   pollGaveUp: false,
@@ -999,6 +1000,7 @@ function showDetail(s) {
     del.addEventListener('click', async () => {
       if (!confirm('Diesen Aufenthalt löschen?')) return;
       await api('/stays/' + s.id, { method: 'DELETE' });
+      state.contextCache = {};
       closeDetail();
       loadStays();
       loadFilters();
@@ -1006,6 +1008,99 @@ function showDetail(s) {
     actions.appendChild(del);
   }
   box.appendChild(actions);
+
+  const context = el('div', 'detail-section', '');
+  context.id = 'detail-context';
+  box.appendChild(context);
+  loadHotelContext(s);
+}
+
+// Was andere in diesem Haus erlebt haben – direkt neben dem eigenen Aufenthalt.
+async function loadHotelContext(stay) {
+  const box = $('#detail-context');
+  if (!box) return;
+
+  let data = state.contextCache[stay.hotel_id];
+  if (!data) {
+    try {
+      data = await api('/hotels/' + stay.hotel_id + '/community');
+      state.contextCache[stay.hotel_id] = data;
+    } catch {
+      return;
+    }
+  }
+  if (!document.body.contains(box)) return;
+
+  box.innerHTML = '';
+  box.appendChild(el('h4', null, 'In diesem Haus'));
+
+  const grid = el('div', 'mini-kpis');
+  const mini = (num, label) => {
+    const cell = el('div', 'mini-kpi');
+    cell.appendChild(el('div', 'num', num));
+    cell.appendChild(el('div', 'lbl', label));
+    grid.appendChild(cell);
+  };
+  mini(String(data.stays), data.stays === 1 ? 'Aufenthalt' : 'Aufenthalte');
+  mini(String(data.people), data.people === 1 ? 'Person' : 'Personen');
+  if (data.stays >= 3 && data.upgrade_quote != null) mini(data.upgrade_quote + ' %', 'Upgradequote');
+  if (data.avg_steps != null) mini((data.avg_steps > 0 ? '+' : '') + comma(data.avg_steps), 'Ø Kategorien');
+  box.appendChild(grid);
+
+  const others = data.alle.filter((s) => s.id !== stay.id);
+  if (others.length) {
+    box.appendChild(el('h4', null, 'Weitere Aufenthalte hier'));
+    const list = el('div', 'mini-list');
+    for (const s of others.slice(0, 8)) list.appendChild(miniStayRow(s));
+    box.appendChild(list);
+    if (others.length > 8) {
+      box.appendChild(el('p', 'sample-note', 'und ' + (others.length - 8) + ' weitere'));
+    }
+  }
+
+  if (data.benefits.length) {
+    box.appendChild(el('h4', null, 'Was es hier häufig gab'));
+    for (const b of data.benefits.slice(0, 4)) box.appendChild(benefitBar(b, data.stays));
+  }
+
+  const more = el('button', 'btn btn-quiet wide', 'Alles zu diesem Hotel');
+  more.type = 'button';
+  more.style.marginTop = '18px';
+  more.addEventListener('click', () => { closeDetail(); showHotel(stay.hotel_id); });
+  box.appendChild(more);
+}
+
+// Kompakte Zeile: wer, wann, welches Upgrade.
+function miniStayRow(s) {
+  const row = el('button', 'mini-row');
+  row.type = 'button';
+
+  const left = el('div');
+  const who = el('div', 'who');
+  who.appendChild(el('span', 'avatar', initials(s.author)));
+  who.appendChild(document.createTextNode(s.author));
+  if (s.status_level) {
+    const badge = el('span', 'badge badge-status', s.status_level);
+    badge.style.background = statusColor(s.status_level);
+    who.appendChild(badge);
+  }
+  left.appendChild(who);
+  left.appendChild(el('div', 'mini-when', stayDates(s)));
+  left.appendChild(el('div', 'mini-rooms',
+    (s.booked_room || '–') + '  ' + flowArrow(s.upgrade_steps) + '  ' + (s.received_room || '–')));
+  row.appendChild(left);
+
+  const step = el('span', 'r-step' + (s.upgrade_steps > 0 ? ' up' : s.upgrade_steps < 0 ? ' down' : ''));
+  step.textContent = s.upgrade_steps == null ? '–'
+    : s.upgrade_steps === 0 ? 'keins' : (s.upgrade_steps > 0 ? '+' : '') + s.upgrade_steps;
+  row.appendChild(step);
+
+  row.addEventListener('click', () => {
+    state.selected = s.id;
+    renderStayList();
+    showDetail(s);
+  });
+  return row;
 }
 
 function shareStay(s) {
@@ -2123,6 +2218,7 @@ $('#stay-form').addEventListener('submit', async (e) => {
       });
     }
 
+    state.contextCache = {};
     resetPicker();
     showView('stays');
     loadFilters();

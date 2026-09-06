@@ -947,3 +947,29 @@ body.is-guest .drawer-body > .note { display: none; }
 
 #detail-context h4 { margin-top: 22px; }
 #detail-context h4:first-child { margin-top: 0; }
+
+/* Tabelle auf breiten Schirmen, gestapelte Liste auf schmalen */
+.only-narrow { display: none; }
+@media (max-width: 700px) {
+  .only-wide { display: none; }
+  .only-narrow { display: flex; }
+  /* Der leere Streifen der ausgeblendeten Suche entfällt hier ganz –
+     der erzwungene Umbruch hält die Navigation trotzdem in ihrer Zeile. */
+}
+@media (max-width: 1080px) {
+  .search-wrap.is-off { display: none; }
+}
+
+/* Häufigste Upgrades in der Auswertung */
+.path-row { padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: .89rem; }
+.path-row:last-child { border-bottom: 0; }
+.path-to { color: var(--gold); font-weight: 600; }
+.path-row .n { color: var(--ink-soft); font-size: .8rem; margin-top: 2px; }
+
+.quote-block { text-align: right; flex: none; }
+.quote-block .quote { font-weight: 600; font-variant-numeric: tabular-nums; }
+.quote-block .sample-note { margin-top: 1px; }
+
+.link-btn.danger { color: var(--ink-soft); }
+.link-btn.danger:hover { color: var(--down); }
+.detail-actions { align-items: center; }

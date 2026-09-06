@@ -997,7 +997,7 @@ function showDetail(s) {
   }
 
   if (s.author === state.me) {
-    const del = el('button', 'btn btn-quiet', 'Löschen');
+    const del = el('button', 'link-btn danger', 'Löschen');
     del.addEventListener('click', async () => {
       if (!confirm('Diesen Aufenthalt löschen?')) return;
       await api('/stays/' + s.id, { method: 'DELETE' });
@@ -1247,7 +1247,14 @@ async function showHotel(hotelId) {
     for (const s of data.alle) tbody.appendChild(hotelStayRow(s));
     t.appendChild(tbody);
     scroll.appendChild(t);
+    scroll.classList.add('only-wide');
     table.appendChild(scroll);
+
+    // Auf schmalen Bildschirmen dieselben Daten gestapelt statt als Tabelle.
+    const narrow = el('div', 'mini-list only-narrow');
+    for (const s of data.alle) narrow.appendChild(miniStayRow(s));
+    table.appendChild(narrow);
+
     box.appendChild(table);
 
     // Zwei Spalten: Statuslevel und Benefits
@@ -1268,12 +1275,19 @@ async function showHotel(hotelId) {
           info.appendChild(el('span', null, g.label));
         }
         info.appendChild(el('div', 'sample-note',
-          g.stays + (g.stays === 1 ? ' Aufenthalt' : ' Aufenthalte')
-          + (g.avg_steps != null ? ' · Ø ' + (g.avg_steps > 0 ? '+' : '') + comma(g.avg_steps) : '')));
+          'basierend auf ' + g.stays + (g.stays === 1 ? ' Aufenthalt' : ' Aufenthalten')
+          + (g.avg_steps != null ? ' · Ø ' + (g.avg_steps > 0 ? '+' : '') + comma(g.avg_steps) + ' Kategorien' : '')));
         row.appendChild(info);
-        row.appendChild(el('span', 'quote', g.stays >= 3 && g.upgrade_quote != null
-          ? g.upgrade_quote + ' %'
-          : g.upgraded + ' von ' + g.stays));
+
+        const quote = el('div', 'quote-block');
+        if (g.stays >= 3 && g.upgrade_quote != null) {
+          quote.appendChild(el('div', 'quote', g.upgrade_quote + ' %'));
+          quote.appendChild(el('div', 'sample-note', 'mit Upgrade'));
+        } else {
+          quote.appendChild(el('div', 'quote', g.upgraded + ' von ' + g.stays));
+          quote.appendChild(el('div', 'sample-note', 'mit Upgrade'));
+        }
+        row.appendChild(quote);
         left.appendChild(row);
       }
       cols.appendChild(left);
@@ -2306,6 +2320,19 @@ async function loadStats() {
           benefits.appendChild(row);
         }
         grid.appendChild(benefits);
+      }
+
+      if (g.paths.length) {
+        const paths = el('div');
+        paths.appendChild(el('h4', null, 'Häufigste Upgrades'));
+        for (const path of g.paths) {
+          const row = el('div', 'path-row');
+          row.appendChild(el('div', 'r-muted', path.booked));
+          row.appendChild(el('div', 'path-to', flowArrow(path.steps) + ' ' + path.received));
+          row.appendChild(el('div', 'n', path.count + '× gemeldet'));
+          paths.appendChild(row);
+        }
+        grid.appendChild(paths);
       }
 
       if (g.top_hotels.length) {

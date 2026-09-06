@@ -1458,7 +1458,7 @@ export async function onRequest(context) {
             program: s.program || 'ohne Programm',
             status: s.status_level || 'ohne Status',
             stays: 0, upgraded: 0, suites: 0, steps: [],
-            benefits: new Map(), hotels: new Map(),
+            benefits: new Map(), hotels: new Map(), paths: new Map(),
           });
         }
         const g = group.get(key);
@@ -1478,6 +1478,14 @@ export async function onRequest(context) {
         for (const b of normalizeBenefits(s.benefits)) {
           g.benefits.set(b.name, (g.benefits.get(b.name) || 0) + 1);
         }
+
+        if (s.booked_room && s.received_room && s.upgrade_steps > 0) {
+          const key = s.booked_room + ' → ' + s.received_room;
+          const path = g.paths.get(key)
+            || { booked: s.booked_room, received: s.received_room, steps: s.upgrade_steps, count: 0 };
+          path.count += 1;
+          g.paths.set(key, path);
+        }
       }
 
       const average = (list) => (list.length
@@ -1495,6 +1503,7 @@ export async function onRequest(context) {
           .map(([name, count]) => ({ name, count, quote: share(count, g.stays) }))
           .sort((a, b) => b.quote - a.quote)
           .slice(0, 8),
+        paths: [...g.paths.values()].sort((a, b) => b.count - a.count).slice(0, 3),
         top_hotels: [...g.hotels.values()]
           .map((h) => ({ id: h.id, name: h.name, city: h.city, stays: h.stays, avg_steps: average(h.steps) }))
           .filter((h) => h.avg_steps != null && h.avg_steps > 0)

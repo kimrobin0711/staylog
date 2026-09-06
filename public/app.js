@@ -1287,6 +1287,7 @@ async function editStay(stay) {
   $('#s-status').value = stay.status_level || '';
   $('#s-checkin').value = stay.checkin || '';
   $('#s-checkout').value = stay.checkout || '';
+  $('#s-checkout').min = stay.checkin || '';
   $('#s-booked').value = stay.booked_room || '';
   $('#s-received').value = stay.received_room || '';
   $('#s-price').value = stay.price ?? '';
@@ -1798,7 +1799,12 @@ function resetPicker() {
   $('#benefit-values').innerHTML = '';
   $('#chosen-gallery').innerHTML = '';
   document.querySelectorAll('.gallery-note').forEach((n) => n.remove());
-  $('#s-checkin').valueAsDate = new Date();
+  const heute = new Date();
+  $('#s-checkin').valueAsDate = heute;
+  const morgen = new Date(heute);
+  morgen.setDate(morgen.getDate() + 1);
+  $('#s-checkout').valueAsDate = morgen;
+  $('#s-checkout').min = $('#s-checkin').value;
   $('#rank-warning').hidden = true;
 
   // Die Auswahl beginnt wieder beim Land.
@@ -2201,6 +2207,22 @@ function updateUpgradeHint() {
 $('#s-booked').addEventListener('change', updateUpgradeHint);
 $('#s-received').addEventListener('change', updateUpgradeHint);
 
+// Der Abreisekalender startet beim Anreisetag und lässt nichts davor zu.
+$('#s-checkin').addEventListener('change', () => {
+  const anreise = $('#s-checkin').value;
+  const abreise = $('#s-checkout');
+  if (!anreise) { abreise.min = ''; return; }
+
+  abreise.min = anreise;
+
+  // Leer oder vor der Anreise: auf den Folgetag setzen, das ist der Normalfall.
+  if (!abreise.value || abreise.value < anreise) {
+    const naechster = new Date(anreise);
+    naechster.setDate(naechster.getDate() + 1);
+    abreise.value = naechster.toISOString().slice(0, 10);
+  }
+});
+
 async function confirmRoom(room, confirmed) {
   if (!state.hotel) return;
   const body = confirmed
@@ -2284,7 +2306,12 @@ function buildForm() {
     chips.appendChild(label);
   }
 
-  $('#s-checkin').valueAsDate = new Date();
+  const heute = new Date();
+  $('#s-checkin').valueAsDate = heute;
+  const morgen = new Date(heute);
+  morgen.setDate(morgen.getDate() + 1);
+  $('#s-checkout').valueAsDate = morgen;
+  $('#s-checkout').min = $('#s-checkin').value;
 }
 
 // Für ausgewählte Benefits, die einen Wert vertragen, ein Feld anbieten.
@@ -2417,6 +2444,19 @@ $('#stay-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const err = $('#form-error');
   err.hidden = true;
+
+  const zeige = (text, feld) => {
+    err.textContent = text;
+    err.hidden = false;
+    feld?.focus();
+  };
+
+  if (!$('#s-checkin').value) return zeige('Bitte trag die Anreise ein.', $('#s-checkin'));
+  if (!$('#s-checkout').value) return zeige('Bitte trag die Abreise ein.', $('#s-checkout'));
+  if ($('#s-checkout').value < $('#s-checkin').value) {
+    return zeige('Die Abreise liegt vor der Anreise.', $('#s-checkout'));
+  }
+
   try {
     const benefits = [...document.querySelectorAll('#benefit-list input:checked')].map((i) => ({
       name: i.value,

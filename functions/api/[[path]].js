@@ -290,19 +290,22 @@ out tags center 400;`;
 async function hotelsFromPhoton(q, lat, lon) {
   const url = new URL('https://photon.komoot.io/api/');
   url.searchParams.set('q', q);
-  url.searchParams.set('limit', '20');
+  url.searchParams.set('limit', '25');
   url.searchParams.set('lang', 'en');   // liefert name:en, sonst stehen dort Schriftzeichen
   url.searchParams.append('osm_tag', 'tourism:hotel');
   if (lat && lon) {
     url.searchParams.set('lat', String(lat));
     url.searchParams.set('lon', String(lon));
+    // Koordinaten sind fuer Photon nur ein Hinweis. Der Kasten begrenzt wirklich.
+    const d = 0.55;
+    url.searchParams.set('bbox', [lon - d, lat - d, lon + d, lat + d].join(','));
   }
 
   const res = await fetch(url.toString(), { headers: { 'user-agent': UA } });
   if (!res.ok) throw new Error('Photon antwortet mit ' + res.status);
   const data = await res.json();
 
-  return (data.features || [])
+  const treffer = (data.features || [])
     .map((f) => {
       const props = f.properties || {};
       const name = props.name;
@@ -321,6 +324,10 @@ async function hotelsFromPhoton(q, lat, lon) {
       };
     })
     .filter(Boolean);
+
+  // Zur Sicherheit noch einmal nach Entfernung sieben: hoechstens 60 km.
+  if (!lat || !lon) return treffer;
+  return treffer.filter((h) => metersApart({ lat, lon }, h) < 60000);
 }
 
 async function hotelsFromNominatim(q, lat, lon) {
@@ -352,6 +359,7 @@ async function hotelsFromNominatim(q, lat, lon) {
         source_id: (r.osm_type || 'node') + '/' + r.osm_id,
         name,
         local_name: names.name && names.name !== name ? names.name : null,
+        place: (r.display_name || '').split(',').slice(-3, -2)[0]?.trim() || null,
         brand,
         program: guessProgram(brand) || guessProgram(name),
         lat: Number(r.lat),

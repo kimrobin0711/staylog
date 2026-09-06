@@ -1681,7 +1681,8 @@ function renderHotelOptions(extra) {
       label.appendChild(el('span', 'local-name', h.local_name));
     }
     b.appendChild(label);
-    b.appendChild(el('small', null, h.program || h.brand || h.street || h.place || ''));
+    b.appendChild(el('small', null, [h.place, h.program || h.brand].filter(Boolean).join(' · ')
+      || h.street || ''));
     b.addEventListener('click', () => chooseHotel(h));
     box.appendChild(b);
   }

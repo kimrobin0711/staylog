@@ -162,7 +162,7 @@ label { display: block; }
 
 @media (max-width: 1080px) {
   .search-wrap { max-width: none; }
-  .topnav, .btn-new, .who { display: none; }
+  .who { display: none; }
 }
 
 /* -------------------------------------------------------------- Schienen */
@@ -171,24 +171,7 @@ label { display: block; }
 body { padding-bottom: 0; }
 
 @media (max-width: 1080px) {
-  body { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
-  .view { padding: 18px 16px 24px; }
-}
-
-.tabs { display: none; }
-@media (max-width: 1080px) {
-  .tabs {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
-    display: grid; grid-template-columns: repeat(3, 1fr);
-    background: var(--paper); border-top: 1px solid var(--line);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  .tab {
-    min-height: var(--tap); border: 0; background: none;
-    font-size: .9rem; color: var(--ink-soft); padding: 14px 4px; cursor: pointer;
-  }
-  .tab.is-on { color: var(--ink); font-weight: 600; box-shadow: inset 0 2px 0 var(--gold); }
-  .tab-primary { color: var(--gold); font-weight: 600; }
+  .view { padding: 18px 16px 30px; }
 }
 
 /* ------------------------------------------------------------ Arbeitsraum */
@@ -358,7 +341,7 @@ body { padding-bottom: 0; }
 .detail-head { display: flex; justify-content: flex-end; margin-bottom: 6px; }
 
 @media (max-width: 620px) {
-  .detail-pane { width: 100%; padding: 18px 18px 90px; }
+  .detail-pane { width: 100%; padding: 18px 18px 40px; }
 }
 @media (prefers-reduced-motion: reduce) { .detail-pane { transition-duration: .01s; } }
 
@@ -865,13 +848,21 @@ body.is-guest .drawer-body > .note { display: none; }
 /* ---------------------------------------------------------------- Mobil */
 
 @media (max-width: 1080px) {
-  /* Suche in eine eigene Zeile, sonst quetscht sie Marke und Zahnrad */
+  /* Drei Zeilen: Marke, Suche, Navigation – nichts wird abgeschnitten. */
   .topbar-inner { flex-wrap: wrap; padding: 10px 16px; gap: 10px 12px; }
   .brand { order: 1; }
   .topbar-user { order: 2; margin-left: auto; }
   .search-wrap { order: 3; flex: 1 1 100%; }
+  .topnav { order: 4; margin-left: 0; flex: 1 1 auto; gap: 2px; }
+  .btn-new { order: 5; margin-left: auto; }
   .brand .mark { width: 36px; height: 36px; }
   .wordmark.small { font-size: 1.4rem; }
+  .topnav-btn { padding: 8px 12px; font-size: .92rem; }
+}
+
+@media (max-width: 460px) {
+  .topnav-btn { padding: 8px 9px; font-size: .88rem; }
+  .btn-new { padding: 9px 12px; font-size: .92rem; }
 }
 
 @media (max-width: 700px) {

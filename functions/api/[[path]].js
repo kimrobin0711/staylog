@@ -1292,6 +1292,84 @@ export async function onRequest(context) {
         return json({ hotel, rooms: rooms.results });
       }
 
+      if (sub === '/community' && method === 'GET') {
+        const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
+        if (!hotel) return fail('Hotel nicht gefunden', 404);
+
+        const rows = await env.DB.prepare(
+          'SELECT * FROM stays WHERE hotel_id = ? ORDER BY checkin DESC, id DESC'
+        ).bind(hotelId).all();
+        const stays = rows.results;
+        const lookup = await suiteLookup(env, [hotelId]);
+
+        const withRank = stays.filter((s) => s.upgrade_steps != null);
+        const upgraded = withRank.filter((s) => s.upgrade_steps > 0);
+        const suites = stays.filter((s) => isSuiteUpgrade(s, lookup));
+
+        const byStatus = new Map();
+        const benefitCount = new Map();
+        const benefitValues = new Map();
+        const pairs = new Map();
+
+        for (const s of stays) {
+          const key = [s.program, s.status_level].filter(Boolean).join(' · ') || 'ohne Status';
+          const entry = byStatus.get(key)
+            || { label: key, program: s.program, status: s.status_level, stays: 0, upgraded: 0, steps: [] };
+          entry.stays += 1;
+          if (s.upgrade_steps != null) {
+            entry.steps.push(s.upgrade_steps);
+            if (s.upgrade_steps > 0) entry.upgraded += 1;
+          }
+          byStatus.set(key, entry);
+
+          for (const b of normalizeBenefits(s.benefits)) {
+            benefitCount.set(b.name, (benefitCount.get(b.name) || 0) + 1);
+            if (b.value) {
+              if (!benefitValues.has(b.name)) benefitValues.set(b.name, []);
+              benefitValues.get(b.name).push(b.value);
+            }
+          }
+          if (s.booked_room && s.received_room) {
+            const pairKey = s.booked_room + ' → ' + s.received_room;
+            const pair = pairs.get(pairKey)
+              || { booked: s.booked_room, received: s.received_room, count: 0, steps: s.upgrade_steps };
+            pair.count += 1;
+            pairs.set(pairKey, pair);
+          }
+        }
+
+        return json({
+          hotel,
+          stays: stays.length,
+          people: new Set(stays.map((s) => s.author)).size,
+          upgrade_quote: share(upgraded.length, stays.length),
+          suite_quote: share(suites.length, stays.length),
+          avg_steps: withRank.length
+            ? Math.round((withRank.reduce((sum, s) => sum + s.upgrade_steps, 0) / withRank.length) * 10) / 10
+            : null,
+          by_status: [...byStatus.values()].map((g) => ({
+            label: g.label,
+            program: g.program,
+            status: g.status,
+            stays: g.stays,
+            upgraded: g.upgraded,
+            upgrade_quote: share(g.upgraded, g.stays),
+            avg_steps: g.steps.length
+              ? Math.round((g.steps.reduce((a, b) => a + b, 0) / g.steps.length) * 10) / 10
+              : null,
+          })).sort((a, b) => b.stays - a.stays),
+          benefits: [...benefitCount.entries()]
+            .map(([name, count]) => ({
+              name, count,
+              quote: share(count, stays.length),
+              values: [...new Set(benefitValues.get(name) || [])].slice(0, 5),
+            }))
+            .sort((a, b) => b.count - a.count),
+          pairs: [...pairs.values()].sort((a, b) => b.count - a.count).slice(0, 10),
+          alle: await withDetails(env, stays),
+        });
+      }
+
       if (sub === '/images' && method === 'GET') {
         const hotel = await env.DB.prepare(
           `SELECT id, name, city, country, website, google_place_id,

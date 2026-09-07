@@ -1222,3 +1222,28 @@ details.group-card[open] > summary { margin-bottom: 4px; }
 .known-mark.aktuell {
   background: transparent; color: var(--ink-soft); border-color: var(--line);
 }
+
+/* Einstellungen auf dem Handy kompakter */
+@media (max-width: 700px) {
+  .drawer { width: 100%; }
+  .drawer-head { padding: 16px 18px 13px; }
+  .drawer-head h2 { font-size: 1rem; }
+  .drawer-body { padding: 16px 18px; }
+  .drawer-foot { padding: 13px 18px calc(13px + env(safe-area-inset-bottom)); }
+
+  .theme-block { margin-bottom: 20px; padding-bottom: 16px; }
+  .theme-block h3, .drawer-h3, .account h3 { font-size: .88rem; }
+  .theme-choice button { padding: 8px 6px; font-size: .8rem; }
+
+  .drawer-body .note { font-size: .82rem; }
+  .status-row { gap: 8px; }
+  .status-row select { min-height: 40px; padding: 8px 10px; font-size: .88rem; }
+  .status-row .remove { width: 34px; height: 34px; font-size: 1rem; }
+  .status-settings { gap: 8px; }
+
+  .drawer-block { margin-top: 20px; padding-top: 16px; }
+  .drawer-block > summary { font-size: .88rem; }
+  .manual h4 { font-size: .82rem; margin: 16px 0 5px; }
+  .manual p { font-size: .82rem; }
+  .account { margin-top: 22px; padding-top: 16px; }
+}

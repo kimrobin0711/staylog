@@ -1,6 +1,7 @@
 // stayLOG – API. Laeuft als Cloudflare Pages Function unter /api/*
 // Bindings: DB (D1), PHOTOS (R2)
 // Secrets:  STAY_PASSWORD (gemeinsames Passwort), ADMIN_PASSWORD, ANTHROPIC_API_KEY
+//           CF_ACCOUNT_ID und CF_BROWSER_TOKEN fuer den Browserdienst
 //           GOOGLE_API_KEY (optional, fuer Bewertung und Bilder)
 // Vars:     OPEN_MODE = "read" (jeder darf schauen) oder "full" (jeder darf auch
 //           eintragen). Nicht gesetzt heisst: nur mit Passwort.
@@ -454,7 +455,49 @@ async function searchHotelsByName(env, q, lat, lon, city) {
 
 /* ------------------------------------------- Zimmerkategorien per Claude */
 
-// Versucht, die Zimmerseite des Hauses direkt zu lesen. Viele Kettenseiten
+// Stufe zwei: die Seite in Cloudflares Browser laden, damit JavaScript laeuft.
+// Marriott und Hilton bauen ihre Zimmerlisten erst im Browser auf.
+async function browserMarkdown(env, url) {
+  const konto = (env.CF_ACCOUNT_ID || '').trim();
+  const token = (env.CF_BROWSER_TOKEN || '').trim();
+  if (!konto || !token || !url) return null;
+
+  const limit = Number(env.BROWSER_MONTHLY_LIMIT || 300);
+  if (await usageCount(env, 'browser') >= limit) return null;
+
+  try {
+    const res = await fetch(
+      'https://api.cloudflare.com/client/v4/accounts/' + konto + '/browser-rendering/markdown',
+      {
+        method: 'POST',
+        signal: AbortSignal.timeout(45000),
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer ' + token,
+        },
+        body: JSON.stringify({
+          url,
+          // Erst rendern lassen, dann lesen. Ohne Wartezeit ist die Liste leer.
+          gotoOptions: { waitUntil: 'networkidle0', timeout: 35000 },
+          rejectResourceTypes: ['image', 'media', 'font'],
+        }),
+      }
+    );
+
+    await usageAdd(env, 'browser', 1);
+    if (!res.ok) return null;
+
+    const daten = await res.json();
+    const text = typeof daten.result === 'string' ? daten.result : daten.result?.markdown;
+    if (!text || text.length < 800) return null;
+
+    return { url, text: text.slice(0, 16000), quelle: 'browser' };
+  } catch {
+    return null;
+  }
+}
+
+// Stufe eins: die Zimmerseite des Hauses direkt lesen. Viele Kettenseiten
 // blocken fremde Zugriffe oder laden per JavaScript nach – dann geht es ohne weiter.
 async function roomPageText(website) {
   if (!website) return null;
@@ -815,8 +858,13 @@ async function runEnrichment(env, hotelId) {
   ).bind(now(), hotelId).run();
 
   try {
-    // Erst die Zimmerseite selbst versuchen – echter Text schlaegt jede Suche.
-    const seite = await roomPageText(hotel.website).catch(() => null);
+    // Mehrstufig: erst normaler Abruf, dann echter Browser, zuletzt die Suche.
+    let seite = await roomPageText(hotel.website).catch(() => null);
+    if (!seite) {
+      const ziel = roomsUrl(hotel.website);
+      seite = await browserMarkdown(env, ziel)
+        || await browserMarkdown(env, hotel.website);
+    }
 
     // Durchgang eins: nur die Domain der Kette. Erst wenn das zu wenig bringt,
     // wird offen gesucht – dann eben mit Namen von Buchungsportalen.
@@ -2137,6 +2185,7 @@ export async function onRequest(context) {
     if (path === '/admin/summary' && method === 'GET') {
       if (!isAdmin(env, user)) return fail('Nur der Verwalter darf das', 403);
       const google = await usageCount(env, 'google');
+      const browser = await usageCount(env, 'browser');
       const row = await env.DB.prepare(
         `SELECT (SELECT COUNT(*) FROM stays) AS aufenthalte,
                 (SELECT COUNT(*) FROM hotels) AS hotels,
@@ -2148,6 +2197,8 @@ export async function onRequest(context) {
         ...row,
         google_monat: google,
         google_limit: Number(env.GOOGLE_MONTHLY_LIMIT || 800),
+        browser_monat: browser,
+        browser_limit: Number(env.BROWSER_MONTHLY_LIMIT || 300),
       });
     }
 

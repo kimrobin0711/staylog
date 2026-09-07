@@ -589,6 +589,9 @@ async function loadAdminSummary() {
     box.appendChild(document.createElement('br'));
     box.appendChild(el('span', null,
       'Google-Aufrufe diesen Monat: ' + d.google_monat + ' von ' + d.google_limit));
+    box.appendChild(document.createElement('br'));
+    box.appendChild(el('span', null,
+      'Browser-Abrufe diesen Monat: ' + (d.browser_monat ?? 0) + ' von ' + (d.browser_limit ?? 0)));
   } catch (e) {
     box.textContent = e.message;
   }

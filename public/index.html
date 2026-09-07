@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css?v=20260907-185006">
+<link rel="stylesheet" href="/styles.css?v=20260907-185455">
 </head>
 <body>
 
@@ -406,6 +406,17 @@
 
 </div>
 
-<script src="/app.js?v=20260907-185006"></script>
+<div id="dialog-veil" class="veil"></div>
+<dialog id="dialog" class="dialog" aria-labelledby="dialog-title">
+  <h3 id="dialog-title" class="dialog-title"></h3>
+  <p id="dialog-text" class="dialog-text"></p>
+  <input id="dialog-input" class="dialog-input" hidden>
+  <div class="dialog-actions">
+    <button type="button" id="dialog-no" class="btn btn-quiet"></button>
+    <button type="button" id="dialog-yes" class="btn btn-solid"></button>
+  </div>
+</dialog>
+
+<script src="/app.js?v=20260907-185455"></script>
 </body>
 </html>

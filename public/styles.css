@@ -1247,3 +1247,26 @@ details.group-card[open] > summary { margin-bottom: 4px; }
   .manual p { font-size: .82rem; }
   .account { margin-top: 22px; padding-top: 16px; }
 }
+
+/* ------------------------------------------------------------- Dialoge */
+
+.dialog {
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--card); color: var(--ink);
+  padding: 26px 26px 22px; width: min(420px, 92vw);
+  box-shadow: 0 20px 60px var(--drawer-shadow);
+}
+.dialog::backdrop { background: var(--veil-bg); }
+.dialog-title { font-size: 1.05rem; margin-bottom: 8px; }
+.dialog-text { color: var(--ink-mid); font-size: .92rem; white-space: pre-line; }
+.dialog-input { margin-top: 16px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.dialog.is-danger .btn-solid { background: var(--down); border-color: var(--down); color: #fff; }
+
+@media (max-width: 700px) {
+  .dialog { padding: 20px 20px 18px; }
+  .dialog-title { font-size: 1rem; }
+  .dialog-text { font-size: .88rem; }
+  .dialog-actions { flex-direction: column-reverse; }
+  .dialog-actions .btn { width: 100%; }
+}

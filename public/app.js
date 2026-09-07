@@ -246,10 +246,87 @@ function fuzzyMatch(name, query) {
   });
 }
 
+// Derselbe Namensvergleich wie auf dem Server: tragende Wörter ohne Füllwerk,
+// und das erste Wort muss stimmen.
+const NAME_FUELL = new Set([
+  'hotel', 'hotels', 'the', 'by', 'a', 'member', 'of', 'and', 'und', 'resort', 'spa',
+  'am', 'im', 'zum', 'zur', 'de', 'la', 'le', 'les', 'du', 'des', 'city', 'centre',
+  'center', 'collection', 'individuals', 'suites', 'inn',
+]);
+
+function nameWords(text) {
+  return normalize(text).split(' ').filter((w) => w.length > 2 && !NAME_FUELL.has(w));
+}
+
+function sameHotelName(a, b) {
+  const x = nameWords(a);
+  const y = nameWords(b);
+  if (!x.length || !y.length) return false;
+  if (x[0] !== y[0]) return false;
+  const [klein, gross] = x.length <= y.length ? [x, new Set(y)] : [y, new Set(x)];
+  return klein.every((wort) => gross.has(wort));
+}
+
 const debounce = (fn, ms = 300) => {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 };
+
+/* --------------------------------------------------------------- Dialoge */
+
+// Eigene Dialoge statt der Browserfenster: gleiche Optik auf jedem Gerät.
+function dialog({ titel, text, ja = 'OK', nein = 'Abbrechen', eingabe = null, gefahr = false }) {
+  const node = $('#dialog');
+  const feld = $('#dialog-input');
+
+  $('#dialog-title').textContent = titel;
+  $('#dialog-text').textContent = text || '';
+  $('#dialog-text').hidden = !text;
+  $('#dialog-yes').textContent = ja;
+  $('#dialog-no').textContent = nein;
+  $('#dialog-no').hidden = !nein;   // ohne Beschriftung entfaellt der Knopf
+  node.classList.toggle('is-danger', gefahr);
+
+  if (eingabe) {
+    feld.hidden = false;
+    feld.type = eingabe.typ || 'text';
+    feld.placeholder = eingabe.platzhalter || '';
+    feld.value = eingabe.wert || '';
+  } else {
+    feld.hidden = true;
+    feld.value = '';
+  }
+
+  node.showModal();
+  if (eingabe) setTimeout(() => feld.focus(), 50);
+
+  return new Promise((fertig) => {
+    const schliessen = (wert) => {
+      node.close();
+      $('#dialog-yes').removeEventListener('click', jaKlick);
+      $('#dialog-no').removeEventListener('click', neinKlick);
+      feld.removeEventListener('keydown', taste);
+      fertig(wert);
+    };
+    const jaKlick = () => schliessen(eingabe ? (feld.value.trim() || null) : true);
+    const neinKlick = () => schliessen(eingabe ? null : false);
+    const taste = (e) => { if (e.key === 'Enter') { e.preventDefault(); jaKlick(); } };
+
+    $('#dialog-yes').addEventListener('click', jaKlick);
+    $('#dialog-no').addEventListener('click', neinKlick);
+    if (eingabe) feld.addEventListener('keydown', taste);
+    node.addEventListener('cancel', (e) => { e.preventDefault(); neinKlick(); }, { once: true });
+  });
+}
+
+const frage = (titel, text, ja = 'Ja', gefahr = false) =>
+  dialog({ titel, text, ja, nein: 'Abbrechen', gefahr });
+
+const eingabeDialog = (titel, text, platzhalter, typ = 'text') =>
+  dialog({ titel, text, ja: 'Weiter', eingabe: { platzhalter, typ } });
+
+// Reiner Hinweis ohne Wahl: nur ein Knopf.
+const hinweis = (titel, text) => dialog({ titel, text, ja: 'Verstanden', nein: '' });
 
 /* ------------------------------------------------------------------ Netz */
 
@@ -528,14 +605,18 @@ async function adminReset(scope) {
     ? 'ALLE Aufenthalte, Bilder, Hotels und Zimmerkategorien'
     : 'alle Aufenthalte und Bilder';
 
-  if (!confirm('Wirklich ' + was + ' unwiderruflich löschen?\n\nMitglieder und Statuslevel bleiben erhalten.')) return;
+  const sicher = await frage('Unwiderruflich löschen?',
+    'Es werden ' + was + ' gelöscht.\nMitglieder und Statuslevel bleiben erhalten.',
+    'Löschen', true);
+  if (!sicher) return;
 
-  const admin = prompt('Zur Sicherheit das Adminpasswort:');
+  const admin = await eingabeDialog('Adminpasswort', 'Zur Sicherheit noch einmal das Adminpasswort.', 'Passwort', 'password');
   if (!admin) return;
 
-  const word = prompt('Tipp zur Bestätigung: LOESCHEN');
+  const word = await eingabeDialog('Bestätigen', 'Tipp zur Bestätigung das Wort LOESCHEN.', 'LOESCHEN');
   if (word !== 'LOESCHEN') {
-    alert('Abgebrochen – das Bestätigungswort stimmte nicht.');
+    $('#admin-result').hidden = false;
+    $('#admin-result').textContent = 'Abgebrochen – das Bestätigungswort stimmte nicht.';
     return;
   }
 
@@ -560,7 +641,9 @@ async function adminReset(scope) {
 }
 
 $('#admin-merge').addEventListener('click', async () => {
-  if (!confirm('Doppelte Hotels zusammenführen?\n\nAufenthalte und Zimmerkategorien wandern jeweils zum ältesten Eintrag.')) return;
+  const sicher = await frage('Doppelte Hotels zusammenführen?',
+    'Aufenthalte und Zimmerkategorien wandern jeweils zum ältesten Eintrag.', 'Zusammenführen');
+  if (!sicher) return;
 
   const result = $('#admin-result');
   result.hidden = false;
@@ -585,9 +668,9 @@ $('#admin-merge').addEventListener('click', async () => {
 $('#admin-reset-stays').addEventListener('click', () => adminReset('aufenthalte'));
 $('#admin-reset-all').addEventListener('click', () => adminReset('alles'));
 
-$('#logout').addEventListener('click', () => {
+$('#logout').addEventListener('click', async () => {
   if (state.guest) { signOut(); return; }
-  if (confirm('Abmelden? Das Passwort wird auf diesem Gerät vergessen.')) signOut();
+  if (await frage('Abmelden?', 'Das Passwort wird auf diesem Gerät vergessen.', 'Abmelden')) signOut();
 });
 
 $('#settings-toggle').addEventListener('click', () => {
@@ -1288,7 +1371,8 @@ function showDetail(s) {
   if (s.author === state.me) {
     const del = el('button', 'link-btn danger', 'Löschen');
     del.addEventListener('click', async () => {
-      if (!confirm('Diesen Aufenthalt löschen?')) return;
+      if (!await frage('Aufenthalt löschen?',
+        'Der Eintrag und seine Fotos werden entfernt.', 'Löschen', true)) return;
       await api('/stays/' + s.id, { method: 'DELETE' });
       state.contextCache = {};
       closeDetail();
@@ -1409,7 +1493,8 @@ function shareStay(s) {
   ].filter(Boolean);
   const text = lines.join('\n');
   if (navigator.share) navigator.share({ text }).catch(() => {});
-  else navigator.clipboard.writeText(text).then(() => alert('In die Zwischenablage kopiert.'));
+  else navigator.clipboard.writeText(text)
+    .then(() => dialog({ titel: 'Kopiert', text: 'Der Text liegt in der Zwischenablage.', ja: 'Gut', nein: '' }));
 }
 
 // Bestehenden Aufenthalt zum Bearbeiten ins Formular laden.
@@ -1458,9 +1543,10 @@ async function editStay(stay) {
 }
 
 // Bearbeiten abbrechen und Eingabe verwerfen führen beide zurück zur Übersicht.
-function verwerfen() {
+async function verwerfen() {
   const etwasDrin = state.hotel || state.pendingPhotos.length || $('#s-notes').value.trim();
-  if (etwasDrin && !confirm('Eingaben verwerfen? Was du bisher eingetragen hast, geht verloren.')) return;
+  if (etwasDrin && !await frage('Eingaben verwerfen?',
+    'Was du bisher eingetragen hast, geht verloren.', 'Verwerfen', true)) return;
   resetPicker();
   showView('stays');
 }
@@ -1813,23 +1899,26 @@ function renderHotelOptions(extra) {
   const box = $('#hotel-results');
   const q = $('#p-hotel').value.trim();
 
+  // Reihenfolge: was stayLOG kennt, dann Googles aktuelle Namen, dann der Umkreis.
+  const bekannt = state.hotelCandidates.filter((h) => h.known);
+  const umkreis = state.hotelCandidates.filter((h) => !h.known);
+
   const merged = [];
-  const seen = new Set();
-  for (const h of extra) {
-    const marker = normalize(h.name);
-    if (seen.has(marker)) continue;
-    seen.add(marker);
-    merged.push(h);
-  }
-  const rest = [];
-  for (const h of state.hotelCandidates) {
-    const marker = normalize(h.name);
-    if (seen.has(marker)) continue;
-    if (q && !fuzzyMatch(h.name, q)) continue;
-    seen.add(marker);
-    (h.known ? merged : rest).push(h);
-  }
-  merged.push(...rest);
+  const passt = (h) => !q || fuzzyMatch(h.name, q);
+
+  const aufnehmen = (liste, mitFilter) => {
+    for (const h of liste) {
+      if (mitFilter && !passt(h)) continue;
+      // Derselbe Name oder dasselbe Haus unter anderem Namen: nur einmal zeigen.
+      if (merged.some((v) => normalize(v.name) === normalize(h.name)
+        || sameHotelName(v.name, h.name))) continue;
+      merged.push(h);
+    }
+  };
+
+  aufnehmen(bekannt, true);
+  aufnehmen(extra, false);
+  aufnehmen(umkreis, true);
 
   box.innerHTML = '';
   if (!merged.length) {
@@ -1838,9 +1927,11 @@ function renderHotelOptions(extra) {
       : 'Keine Hotels im Umkreis gefunden.'));
     return;
   }
+
   for (const h of merged.slice(0, 40)) {
     const b = el('button', 'option');
     b.type = 'button';
+
     const label = el('span');
     label.appendChild(document.createTextNode(h.name));
     if (h.known) label.appendChild(el('span', 'known-mark', 'in stayLOG'));
@@ -2303,7 +2394,9 @@ function renderRankWarning() {
 
 $('#rooms-refresh').addEventListener('click', async () => {
   if (!state.hotel) return;
-  if (!confirm('Zimmerkategorien neu recherchieren? Von dir bestätigte Kategorien bleiben erhalten.\n\nDas ist einmal im Monat je Hotel möglich.')) return;
+  if (!await frage('Neu recherchieren?',
+    'Von dir bestätigte Kategorien bleiben erhalten.\nDas ist einmal im Monat je Hotel möglich.',
+    'Recherchieren')) return;
 
   const note = $('#rooms-refresh-note');
   try {
@@ -2873,7 +2966,7 @@ $('#log-open').addEventListener('click', async () => {
     return;
   }
   const box = $('#log-body');
-  const admin = prompt('Adminpasswort');
+  const admin = await eingabeDialog('Adminpasswort', 'Das Protokoll ist geschützt.', 'Passwort', 'password');
   if (!admin) return;
   box.innerHTML = '<p class="log-note">Wird geladen …</p>';
   try {

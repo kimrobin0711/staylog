@@ -460,7 +460,7 @@ async function roomPageText(website) {
   if (!website) return null;
 
   const basis = website.replace(/\/+$/, '');
-  const kandidaten = [basis + '/rooms/', basis + '/rooms', basis + '/zimmer/', basis];
+  const kandidaten = [roomsUrl(website), basis + '/zimmer/', basis].filter(Boolean);
 
   for (const url of kandidaten) {
     try {
@@ -508,6 +508,36 @@ const PROGRAMM_DOMAIN = {
   'Scandic Friends': 'scandichotels.com',
 };
 
+// Buchungsportale und Metasuchen taugen zur Identifikation eines Hauses,
+// aber niemals als Quelle fuer Zimmerkategorien. Ihre Namen sind erfunden.
+
+// Baut aus der Hotelseite die Zimmerseite. Verhindert /rooms/rooms/.
+function roomsUrl(website) {
+  if (!website) return null;
+  try {
+    const url = new URL(website);
+    const teile = url.pathname.split('/').filter(Boolean);
+    while (['rooms', 'zimmer', 'suites'].includes(teile[teile.length - 1])) teile.pop();
+    teile.push('rooms');
+    url.pathname = '/' + teile.join('/') + '/';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+// Die eigene Domain eines unabhaengigen Hauses ist ebenfalls offiziell.
+function eigeneDomain(hotel) {
+  if (!hotel.website) return null;
+  try {
+    return new URL(hotel.website).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
 function chainDomain(hotel) {
   if (hotel.website) {
     try {
@@ -542,16 +572,29 @@ Vorgehen:
    accor.com, radissonhotels.com, melia.com, nh-hotels.com. Die Zimmerseite endet dort meist
    auf /rooms oder /zimmer.
 2. Lies genau diese Seite und uebernimm die Kategorienamen exakt so, wie das Hotel sie schreibt.
-3. Die Zimmerseiten der Ketten werden oft per JavaScript nachgeladen und geben in der Suche
-   nichts her. Dann nutze grosse Buchungsportale wie booking.com, hotels.com, expedia,
-   agoda oder trivago. Deren Zimmerlisten sind aktuell und ausdruecklich erwuenscht.
+3. Die Zimmerseiten der Ketten werden oft per JavaScript nachgeladen. Dann suche gezielt
+   mit einer Einschraenkung auf die Domain der Kette, etwa:
+   site:marriott.com "AC Hotel Valencia" rooms
+   Auch die Ausschnitte aus den Suchergebnissen offizieller Seiten sind zulaessig.
+4. Findest du auf offiziellen Seiten nichts, gib {"found": true, "rooms": []} zurueck.
+   Uebernimm NIEMALS Kategorien von Buchungsportalen, Metasuchen oder Sammelseiten.
 
-Unzulaessige Quellen – nutze sie unter keinen Umstaenden:
-- PDF-Dateien jeder Art. Das sind fast immer veraltete Verkaufsunterlagen.
-- Seiten von Reisebueros, Tagungsvermittlern und Buchungsagenturen, etwa
-  conferencehotelgroup.com, hotelplanner.com und aehnliche Portale.
-- Archivseiten und Zwischenspeicher von Suchmaschinen.
-Diese Quellen fuehren regelmaessig zu Kategorienamen, die es seit Jahren nicht mehr gibt.
+Zulaessig sind ausschliesslich:
+- die offizielle Seite der Kette, etwa marriott.com, hilton.com, ihg.com, hyatt.com,
+  all.accor.com, radissonhotels.com, in jeder Sprachfassung
+- die eigene Seite eines unabhaengigen Hauses
+- Ausschnitte aus Suchergebnissen, die von einer dieser Seiten stammen
+
+Unzulaessig – unter keinen Umstaenden verwenden:
+- Buchungsportale wie booking.com, hotels.com, expedia, agoda
+- Metasuchen wie kayak, trivago, momondo, skyscanner
+- Bewertungsseiten wie tripadvisor
+- Stadt- und Sammelportale wie valencia-hotels.org
+- PDF-Verkaufsunterlagen, Reisebueros, Archivseiten, Reiseblogs
+
+Diese Seiten erfinden Sammelbezeichnungen wie "Standard Room", "Queen Room" oder
+"Triple Room", die das Hotel selbst gar nicht verwendet. Solche Namen sind fuer uns
+schlechter als gar keine Angabe. Lieber eine leere Liste als erfundene Kategorien.
 
 Pruefe die Aktualitaet: Klingen die Namen nach einer aelteren Markenfassung oder passen sie
 nicht zu den heutigen Marken der Kette, suche weiter statt sie zu uebernehmen.
@@ -576,7 +619,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown, ohne Vor- oder Na
       "name": "Superior Room",
       "type": "room",
       "rank": 1,
-      "source": "official_hotel_website",
+      "source": "official_chain_site",
       "source_url": "https://...",
       "confidence": "high",
       "size_sqm": 26,
@@ -621,9 +664,12 @@ Regeln zum Treueprogramm:
 
 Weitere Regeln:
 - "type" ist "room" oder "suite".
-- "confidence" ist "high", wenn der Name auf einer offiziellen Seite der Kette steht,
-  "medium" bei einem grossen Buchungsportal und "low" bei allem anderen. Kategorien
-  mit "low" gibst du gar nicht erst an.
+- "source" ist "official_chain_site" bei der Kettenseite, "official_hotel_website" bei
+  der eigenen Seite des Hauses oder "search_snippet_official" bei einem Ausschnitt aus
+  den Suchergebnissen einer offiziellen Seite.
+- "confidence" ist "high" bei einer offiziellen Seite, "medium" bei einem Ausschnitt
+  daraus. Alles darunter gibst du nicht an.
+- Achte auf die URL: Haenge kein zweites /rooms/ an eine Adresse, die bereits darauf endet.
 - Optionale Felder duerfen null sein. Erfinde nichts, um sie zu fuellen.
 - Jede Kategorie braucht die Quell-URL, aus der sie stammt. Zulaessig sind die Domain der
   Kette und grosse Buchungsportale. Unzulaessig bleiben PDFs, Vermittlerseiten und Archive.
@@ -644,8 +690,9 @@ async function enrichHotel(env, hotel, seite, nurDomain) {
     name: 'web_search',
     max_uses: nurDomain ? 4 : 5,
   };
-  // Erster Durchgang: ausschliesslich die Seiten der Kette.
-  if (nurDomain) werkzeug.allowed_domains = [nurDomain];
+  // Zimmerkategorien kommen ausschliesslich von der Kette oder der Hotelseite.
+  const offiziell = [nurDomain, chainDomain(hotel), eigeneDomain(hotel)].filter(Boolean);
+  if (offiziell.length) werkzeug.allowed_domains = [...new Set(offiziell)];
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -787,7 +834,7 @@ async function runEnrichment(env, hotelId) {
     const rooms = Array.isArray(result.rooms) ? result.rooms : [];
 
     // Auch ohne Zimmerliste sind Adresse, Webseite und Beschreibung etwas wert.
-    if (!result.found || rooms.length === 0) {
+    if (!result.found || rooms.length === 0) {   // Haus nicht sicher zugeordnet
       await env.DB.prepare(
         `UPDATE hotels SET enrich_status = 'failed', enrich_error = ?, enriched_at = ?,
            chain = COALESCE(?, chain), brand = COALESCE(?, brand),
@@ -812,19 +859,35 @@ async function runEnrichment(env, hotelId) {
       return;
     }
 
-    // PDF-Unterlagen und Vermittlerseiten sind fast immer veraltet.
-    const UNTAUGLICH = /\.pdf($|\?)|conferencehotelgroup|hotelplanner|webcache|archive\.org/i;
-    const brauchbar = rooms.filter((r) =>
-      (!r.source_url || !UNTAUGLICH.test(r.source_url)) && r.confidence !== 'low');
+    // Zugelassen sind nur die Kette und wenige grosse Portale. Alles andere –
+    // Metasuchen, Stadtportale, PDFs – liefert erfundene oder veraltete Namen.
+    // Nur die Kette und die Seite des Hauses selbst. Keine Portale, keine Metasuchen.
+    const erlaubteQuellen = [
+      chainDomain(hotel),
+      eigeneDomain(hotel),
+      ...Object.values(PROGRAMM_DOMAIN),
+    ].filter(Boolean);
+
+    const quelleOk = (url) => {
+      if (!url) return false;                    // ohne Beleg zaehlt es nicht
+      if (/\.pdf($|\?)/i.test(url)) return false;
+      try {
+        const host = new URL(url).hostname.replace(/^www\./, '');
+        return erlaubteQuellen.some((d) => host === d || host.endsWith('.' + d));
+      } catch {
+        return false;
+      }
+    };
+
+    const brauchbar = rooms.filter((r) => quelleOk(r.source_url) && r.confidence !== 'low');
 
     // Eine oder zwei Kategorien taugen nicht: daraus laesst sich keine Leiter bilden.
-    if (rooms.length > 0 && brauchbar.length < 3) {
+    // Lieber keine Kategorie als eine erfundene.
+    if (brauchbar.length < 3) {
       await env.DB.prepare(
-        "UPDATE hotels SET enrich_status = 'failed', enrich_error = ?, enriched_at = ? WHERE id = ?"
+        "UPDATE hotels SET enrich_status = 'incomplete', enrich_error = ?, enriched_at = ? WHERE id = ?"
       ).bind(
-        brauchbar.length === 0
-          ? 'Nur veraltete Quellen gefunden'
-          : 'Zu wenige belastbare Kategorien (' + brauchbar.length + ')',
+        'Auf den offiziellen Seiten liessen sich keine Zimmerkategorien belegen',
         stamp, hotelId
       ).run();
       return;

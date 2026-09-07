@@ -121,11 +121,6 @@ const statusColor = (level) => {
   return '#8A9099';
 };
 
-const FALLBACK_ROOMS = {
-  'Marriott Bonvoy': ['Guest Room', 'Deluxe Room', 'Executive / Club Room', 'Junior Suite', 'Suite'],
-  'Hilton Honors':   ['Standard Room', 'Deluxe Room', 'Executive Room', 'Junior Suite', 'Suite'],
-  'default':         ['Standardzimmer', 'Komfortzimmer', 'Deluxe', 'Junior Suite', 'Suite'],
-};
 
 // hint = Platzhalter für den Zusatzwert. null heißt: kein Wert sinnvoll.
 const BENEFITS = [
@@ -2215,11 +2210,6 @@ async function loadGallery() {
 
 /* --------------------------------------------------------- Zimmerkategorien */
 
-function fallbackRooms() {
-  const names = FALLBACK_ROOMS[$('#s-program').value] || FALLBACK_ROOMS.default;
-  return names.map((name, i) => ({ name, rank: i + 1, confirmed: 0, source: 'fallback' }));
-}
-
 function renderRooms() {
   const list = $('#rooms-list');
   const status = $('#rooms-status');
@@ -2280,19 +2270,22 @@ function renderRooms() {
   }
 
   const found = state.rooms.length;
-  const rooms = found ? state.rooms : fallbackRooms();
+  const rooms = state.rooms;
 
   if (found) {
     status.innerHTML = '';
-    status.appendChild(el('span', 'rooms-found', '✓ ' + found + (found === 1 ? ' Kategorie' : ' Kategorien') + ' gefunden'));
+    status.appendChild(el('span', 'rooms-found',
+      '✓ ' + found + (found === 1 ? ' Kategorie' : ' Kategorien') + ' gefunden'));
   } else {
-    status.textContent = 'nichts gefunden';
+    // Bewusst keine Ersatzliste: falsche Namen sind schlechter als keine.
+    status.textContent = 'nicht ermittelt';
     list.appendChild(el('p', 'rooms-failed',
-      'Keine Zimmerkategorien gefunden. Die Liste unten ist die allgemeine Leiter der Marke – ergänze oder ersetze sie.'));
+      'Die offiziellen Zimmerkategorien konnten nicht zuverlässig ermittelt werden. '
+      + 'Trag sie unten selbst ein – deine Angaben gelten dann für alle.'));
     if (state.hotel?.enrich_error) {
-      list.appendChild(el('p', 'rooms-error', 'Grund: ' + state.hotel.enrich_error));
+      list.appendChild(el('p', 'rooms-error', state.hotel.enrich_error));
     }
-    const add = el('button', 'btn btn-quiet', 'Zimmerkategorie selbst hinzufügen');
+    const add = el('button', 'btn btn-quiet', 'Zimmerkategorie hinzufügen');
     add.type = 'button';
     add.addEventListener('click', () => {
       $('#rooms-box').open = true;
@@ -2359,8 +2352,7 @@ function renderRooms() {
     list.appendChild(row);
   });
 
-  renderSourceHint(rooms);
-  fillRoomSelects(rooms);
+  fillRoomSelects(rooms, rooms.length ? null : 'noch keine Kategorien – bitte ergänzen');
   renderRankWarning();
   updateRefreshNote();
 }
@@ -2386,19 +2378,6 @@ async function renameRoom(room) {
   state.contextCache = {};
   renderRooms();
   loadStays();
-}
-
-// Stammen die Namen von einem Buchungsportal, weichen sie oft vom Hotel ab.
-function renderSourceHint(rooms) {
-  const box = $('#rooms-list');
-  const portale = /booking\.com|hotels\.com|expedia|agoda|trivago|kayak/i;
-  const ausPortal = rooms.some((r) => r.source_url && portale.test(r.source_url));
-  if (!ausPortal) return;
-
-  box.appendChild(el('p', 'rooms-hint',
-    'Diese Namen stammen von einem Buchungsportal und können von den Bezeichnungen '
-    + 'des Hotels abweichen. Klick einen Namen an, um ihn zu berichtigen – die Korrektur '
-    + 'gilt dann für alle.'));
 }
 
 // Reihenfolge tauschen und gleich als geprüft speichern.
@@ -2561,7 +2540,7 @@ function fillRoomSelects(rooms, placeholder) {
 function updateUpgradeHint() {
   const badge = $('#upgrade-hint');
   const text = $('#upgrade-text');
-  const rooms = state.rooms.length ? state.rooms : fallbackRooms();
+  const rooms = state.rooms;
   const rank = (name) => rooms.find((r) => r.name === name)?.rank;
   const booked = rank($('#s-booked').value);
   const got = rank($('#s-received').value);

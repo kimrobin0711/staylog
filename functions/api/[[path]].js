@@ -462,11 +462,22 @@ Land: ${hotel.country || 'unbekannt'}
 ${hotel.brand ? 'Marke laut Kartendaten: ' + hotel.brand : ''}
 
 Vorgehen:
-1. Finde zuerst die offizielle Webseite genau dieses Hauses (nicht die Startseite der Kette).
-2. Lies dort die Seite mit den Zimmern und Suiten und uebernimm die Kategorienamen exakt so,
-   wie das Hotel sie schreibt.
-3. Findest du dort keine Zimmerliste, nutze grosse Buchungsportale, Hotelbewertungsseiten
-   oder Reiseblogs und vermerke die Quelle. Eine unvollstaendige Liste ist besser als keine.
+1. Finde zuerst die offizielle Webseite genau dieses Hauses. Gehoert das Haus zu einer Kette,
+   liegt sie auf deren eigener Domain, etwa marriott.com, hilton.com, ihg.com, hyatt.com,
+   accor.com, radissonhotels.com, melia.com, nh-hotels.com. Die Zimmerseite endet dort meist
+   auf /rooms oder /zimmer.
+2. Lies genau diese Seite und uebernimm die Kategorienamen exakt so, wie das Hotel sie schreibt.
+3. Nur wenn die offizielle Seite keine Zimmerliste hergibt, weiche auf grosse Buchungsportale aus.
+
+Unzulaessige Quellen – nutze sie unter keinen Umstaenden:
+- PDF-Dateien jeder Art. Das sind fast immer veraltete Verkaufsunterlagen.
+- Seiten von Reisebueros, Tagungsvermittlern und Buchungsagenturen, etwa
+  conferencehotelgroup.com, hotelplanner.com und aehnliche Portale.
+- Archivseiten und Zwischenspeicher von Suchmaschinen.
+Diese Quellen fuehren regelmaessig zu Kategorienamen, die es seit Jahren nicht mehr gibt.
+
+Pruefe die Aktualitaet: Klingen die Namen nach einer aelteren Markenfassung oder passen sie
+nicht zu den heutigen Marken der Kette, suche weiter statt sie zu uebernehmen.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown, ohne Vor- oder Nachtext:
 
@@ -533,7 +544,8 @@ Regeln zum Treueprogramm:
 Weitere Regeln:
 - "type" ist "room" oder "suite".
 - Optionale Felder duerfen null sein. Erfinde nichts, um sie zu fuellen.
-- Jede Kategorie braucht die Quell-URL, aus der sie stammt.
+- Jede Kategorie braucht die Quell-URL, aus der sie stammt. Bei Kettenhotels muss diese URL
+  auf der Domain der Kette liegen, sonst gilt die Kategorie als unbelegt.
 
 Wann "found" auf true steht:
 - Sobald du das Haus zweifelsfrei identifiziert hast, setze "found": true – auch dann, wenn
@@ -695,11 +707,22 @@ async function runEnrichment(env, hotelId) {
       return;
     }
 
+    // PDF-Unterlagen und Vermittlerseiten sind fast immer veraltet.
+    const UNTAUGLICH = /\.pdf($|\?)|conferencehotelgroup|hotelplanner|webcache|archive\.org/i;
+    const brauchbar = rooms.filter((r) => !r.source_url || !UNTAUGLICH.test(r.source_url));
+
+    if (brauchbar.length === 0 && rooms.length > 0) {
+      await env.DB.prepare(
+        "UPDATE hotels SET enrich_status = 'failed', enrich_error = ?, enriched_at = ? WHERE id = ?"
+      ).bind('Nur veraltete Quellen gefunden', stamp, hotelId).run();
+      return;
+    }
+
     // Was der Nutzer bestaetigt hat, bleibt unangetastet.
     // Das Vorschaubild der Hotelseite holen wir einmal und behalten es.
     const eigenesBild = await siteImage(result.website || hotel.website);
 
-    const inserts = rooms.slice(0, 30).map((r, i) =>
+    const inserts = brauchbar.slice(0, 30).map((r, i) =>
       env.DB.prepare(
         `INSERT INTO room_types
            (hotel_id, name, rank, confirmed, source, source_url, type, size_sqm,

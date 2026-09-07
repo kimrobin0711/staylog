@@ -527,8 +527,10 @@ async function roomPageText(website) {
         .replace(/\s+/g, ' ')
         .trim();
 
-      // Zu wenig Text heisst: die Seite laedt ihren Inhalt per JavaScript nach.
-      if (text.length > 1500) return { url, text: text.slice(0, 14000) };
+      // Lang genug allein reicht nicht: Kettenseiten liefern ein Geruest voller
+      // Navigationstext. Es muss auch nach Zimmern aussehen.
+      const treffer = (text.match(/\b(room|rooms|zimmer|suite|suites)\b/gi) || []).length;
+      if (text.length > 1500 && treffer >= 6) return { url, text: text.slice(0, 14000) };
     } catch { /* naechster Versuch */ }
   }
   return null;
@@ -858,12 +860,18 @@ async function runEnrichment(env, hotelId) {
   ).bind(now(), hotelId).run();
 
   try {
-    // Mehrstufig: erst normaler Abruf, dann echter Browser, zuletzt die Suche.
-    let seite = await roomPageText(hotel.website).catch(() => null);
-    if (!seite) {
-      const ziel = roomsUrl(hotel.website);
-      seite = await browserMarkdown(env, ziel)
-        || await browserMarkdown(env, hotel.website);
+    // Mehrstufig. Bei Kettenseiten lohnt der einfache Abruf nicht: die bauen ihre
+    // Zimmerlisten erst im Browser auf. Dort also gleich Stufe zwei.
+    const ziel = roomsUrl(hotel.website);
+    const kette = Boolean(chainDomain(hotel));
+
+    let seite = null;
+    if (kette) {
+      seite = await browserMarkdown(env, ziel) || await browserMarkdown(env, hotel.website);
+    }
+    if (!seite) seite = await roomPageText(hotel.website).catch(() => null);
+    if (!seite && !kette) {
+      seite = await browserMarkdown(env, ziel) || await browserMarkdown(env, hotel.website);
     }
 
     // Durchgang eins: nur die Domain der Kette. Erst wenn das zu wenig bringt,

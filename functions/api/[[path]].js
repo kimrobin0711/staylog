@@ -467,7 +467,9 @@ Vorgehen:
    accor.com, radissonhotels.com, melia.com, nh-hotels.com. Die Zimmerseite endet dort meist
    auf /rooms oder /zimmer.
 2. Lies genau diese Seite und uebernimm die Kategorienamen exakt so, wie das Hotel sie schreibt.
-3. Nur wenn die offizielle Seite keine Zimmerliste hergibt, weiche auf grosse Buchungsportale aus.
+3. Die Zimmerseiten der Ketten werden oft per JavaScript nachgeladen und geben in der Suche
+   nichts her. Dann nutze grosse Buchungsportale wie booking.com, hotels.com, expedia,
+   agoda oder trivago. Deren Zimmerlisten sind aktuell und ausdruecklich erwuenscht.
 
 Unzulaessige Quellen – nutze sie unter keinen Umstaenden:
 - PDF-Dateien jeder Art. Das sind fast immer veraltete Verkaufsunterlagen.
@@ -544,8 +546,8 @@ Regeln zum Treueprogramm:
 Weitere Regeln:
 - "type" ist "room" oder "suite".
 - Optionale Felder duerfen null sein. Erfinde nichts, um sie zu fuellen.
-- Jede Kategorie braucht die Quell-URL, aus der sie stammt. Bei Kettenhotels muss diese URL
-  auf der Domain der Kette liegen, sonst gilt die Kategorie als unbelegt.
+- Jede Kategorie braucht die Quell-URL, aus der sie stammt. Zulaessig sind die Domain der
+  Kette und grosse Buchungsportale. Unzulaessig bleiben PDFs, Vermittlerseiten und Archive.
 
 Wann "found" auf true steht:
 - Sobald du das Haus zweifelsfrei identifiziert hast, setze "found": true – auch dann, wenn
@@ -711,10 +713,16 @@ async function runEnrichment(env, hotelId) {
     const UNTAUGLICH = /\.pdf($|\?)|conferencehotelgroup|hotelplanner|webcache|archive\.org/i;
     const brauchbar = rooms.filter((r) => !r.source_url || !UNTAUGLICH.test(r.source_url));
 
-    if (brauchbar.length === 0 && rooms.length > 0) {
+    // Eine oder zwei Kategorien taugen nicht: daraus laesst sich keine Leiter bilden.
+    if (rooms.length > 0 && brauchbar.length < 3) {
       await env.DB.prepare(
         "UPDATE hotels SET enrich_status = 'failed', enrich_error = ?, enriched_at = ? WHERE id = ?"
-      ).bind('Nur veraltete Quellen gefunden', stamp, hotelId).run();
+      ).bind(
+        brauchbar.length === 0
+          ? 'Nur veraltete Quellen gefunden'
+          : 'Zu wenige belastbare Kategorien (' + brauchbar.length + ')',
+        stamp, hotelId
+      ).run();
       return;
     }
 
@@ -1491,7 +1499,12 @@ export async function onRequest(context) {
           'SELECT enrich_status, enriched_at FROM hotels WHERE id = ?'
         ).bind(hotelId).first();
 
-        if (stand?.enrich_status === 'ready' && stand.enriched_at) {
+        // Gesperrt wird nur, wenn das bisherige Ergebnis auch etwas taugt.
+        const anzahl = await env.DB.prepare(
+          'SELECT COUNT(*) AS n FROM room_types WHERE hotel_id = ?'
+        ).bind(hotelId).first();
+
+        if (stand?.enrich_status === 'ready' && stand.enriched_at && (anzahl?.n || 0) >= 3) {
           const alter = Date.now() - Date.parse(stand.enriched_at);
           const sperre = 30 * 86400000;
           if (alter < sperre) {

@@ -2443,7 +2443,8 @@ function updateRefreshNote() {
 
   if (laeuft) { note.textContent = ''; return; }
 
-  if (hotel.enrich_status === 'ready' && hotel.enriched_at) {
+  // Nur bei brauchbarem Ergebnis sperren – sonst darf sofort neu gesucht werden.
+  if (hotel.enrich_status === 'ready' && hotel.enriched_at && state.rooms.length >= 3) {
     const tage = Math.ceil((30 * 86400000 - (Date.now() - Date.parse(hotel.enriched_at))) / 86400000);
     if (tage > 0) {
       knopf.disabled = true;

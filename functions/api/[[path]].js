@@ -997,6 +997,30 @@ function slug(text) {
     .replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+// Tragende Woerter eines Hotelnamens, ohne Fuellwerk.
+const NAME_FUELL = new Set([
+  'hotel', 'hotels', 'the', 'by', 'a', 'member', 'of', 'and', 'und', 'resort', 'spa',
+  'am', 'im', 'zum', 'zur', 'de', 'la', 'le', 'les', 'du', 'des', 'city', 'centre',
+  'center', 'collection', 'individuals', 'suites', 'inn',
+]);
+
+function nameWords(text) {
+  return slug(text).split(' ').filter((w) => w.length > 2 && !NAME_FUELL.has(w));
+}
+
+// Meinen zwei Namen dasselbe Haus? Alle tragenden Woerter des kuerzeren Namens
+// muessen im laengeren vorkommen UND das erste Wort muss gleich sein. Sonst
+// gaelte "Hampton by Hilton Stuttgart" als dasselbe wie "Hilton Stuttgart".
+function sameHotelName(a, b) {
+  const x = nameWords(a);
+  const y = nameWords(b);
+  if (!x.length || !y.length) return false;
+  if (x[0] !== y[0]) return false;
+
+  const [klein, gross] = x.length <= y.length ? [x, new Set(y)] : [y, new Set(x)];
+  return klein.every((wort) => gross.has(wort));
+}
+
 // Grobe Entfernung in Metern, reicht fuer "dasselbe Gebaeude".
 function metersApart(a, b) {
   if (!a?.lat || !a?.lon || !b?.lat || !b?.lon) return Infinity;
@@ -1240,9 +1264,14 @@ export async function onRequest(context) {
         ).bind(b.city || '').all();
 
         const wanted = slug(b.name);
-        existing = candidates.results.find((h) => slug(h.name) === wanted)
-          || candidates.results.find((h) => metersApart(h, b) < 120
-               && (slug(h.name).includes(wanted) || wanted.includes(slug(h.name))))
+        existing =
+          // 1. genau derselbe Name
+          candidates.results.find((h) => slug(h.name) === wanted)
+          // 2. gleiche tragende Woerter, etwa "AC Hotel Valencia" und
+          //    "AC Hotel Valencia by Marriott"
+          || candidates.results.find((h) => sameHotelName(h.name, b.name))
+          // 3. dasselbe Gebaeude, auch wenn die Namen abweichen
+          || candidates.results.find((h) => metersApart(h, b) < 250)
           || null;
       }
 
@@ -1833,6 +1862,53 @@ export async function onRequest(context) {
 
       waitUntil(logEvent(env, request, 'admin_reset', user.name, scope));
       return json({ geloescht: scope, bilder: photos.results.length });
+    }
+
+    // Doppelte Hotels zusammenfuehren: Aufenthalte und Kategorien wandern zum
+    // aeltesten Eintrag, die spaeteren verschwinden.
+    if (path === '/admin/merge' && method === 'POST') {
+      if (!isAdmin(env, user)) return fail('Nur der Verwalter darf das', 403);
+
+      const rows = await env.DB.prepare('SELECT * FROM hotels ORDER BY id').all();
+      const hotels = rows.results;
+      const zusammen = [];
+
+      for (let i = 0; i < hotels.length; i += 1) {
+        const behalten = hotels[i];
+        if (behalten.merged) continue;
+
+        for (let j = i + 1; j < hotels.length; j += 1) {
+          const weg = hotels[j];
+          if (weg.merged) continue;
+          if ((behalten.city || '') !== (weg.city || '')) continue;
+
+          const gleich = slug(behalten.name) === slug(weg.name)
+            || sameHotelName(behalten.name, weg.name)
+            || metersApart(behalten, weg) < 250;
+          if (!gleich) continue;
+
+          weg.merged = true;
+          zusammen.push({ behalten: behalten.id, entfernt: weg.id, name: weg.name });
+
+          await env.DB.batch([
+            env.DB.prepare('UPDATE stays SET hotel_id = ? WHERE hotel_id = ?').bind(behalten.id, weg.id),
+            // Kategorien nur uebernehmen, wenn der Name dort noch fehlt.
+            env.DB.prepare(
+              `INSERT OR IGNORE INTO room_types
+                 (hotel_id, name, rank, confirmed, source, source_url, type, size_sqm,
+                  bed_type, max_occupancy, description, researched_at, created_at)
+               SELECT ?, name, rank, confirmed, source, source_url, type, size_sqm,
+                      bed_type, max_occupancy, description, researched_at, created_at
+                 FROM room_types WHERE hotel_id = ?`
+            ).bind(behalten.id, weg.id),
+            env.DB.prepare('DELETE FROM room_types WHERE hotel_id = ?').bind(weg.id),
+            env.DB.prepare('DELETE FROM hotels WHERE id = ?').bind(weg.id),
+          ]);
+        }
+      }
+
+      waitUntil(logEvent(env, request, 'admin_merge', user.name, zusammen.length + ' zusammengefuehrt'));
+      return json({ zusammengefuehrt: zusammen });
     }
 
     // Zaehlt, was ein Zuruecksetzen betreffen wuerde.

@@ -559,6 +559,29 @@ async function adminReset(scope) {
   }
 }
 
+$('#admin-merge').addEventListener('click', async () => {
+  if (!confirm('Doppelte Hotels zusammenführen?\n\nAufenthalte und Zimmerkategorien wandern jeweils zum ältesten Eintrag.')) return;
+
+  const result = $('#admin-result');
+  result.hidden = false;
+  result.textContent = 'Wird geprüft …';
+  try {
+    const res = await api('/admin/merge', { method: 'POST' });
+    const liste = res.zusammengefuehrt;
+    result.textContent = liste.length
+      ? liste.length + ' Doppelgänger zusammengeführt: '
+        + liste.map((e) => e.name + ' (' + e.entfernt + ' → ' + e.behalten + ')').join(', ')
+      : 'Keine Doppelgänger gefunden.';
+    state.contextCache = {};
+    state.imageCache = {};
+    loadAdminSummary();
+    loadFilters();
+    loadStays();
+  } catch (e) {
+    result.textContent = e.message;
+  }
+});
+
 $('#admin-reset-stays').addEventListener('click', () => adminReset('aufenthalte'));
 $('#admin-reset-all').addEventListener('click', () => adminReset('alles'));
 

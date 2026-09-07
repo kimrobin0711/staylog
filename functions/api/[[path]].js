@@ -1308,6 +1308,8 @@ export async function onRequest(context) {
       offener_betrieb: openMode(env) || 'aus',
       adminpasswort_hinterlegt: Boolean(env.ADMIN_PASSWORD),
       google_schluessel_hinterlegt: Boolean(env.GOOGLE_API_KEY),
+      browser_konto_hinterlegt: Boolean(env.CF_ACCOUNT_ID),
+      browser_token_hinterlegt: Boolean(env.CF_BROWSER_TOKEN),
       anthropic_schluessel_hinterlegt: Boolean(env.ANTHROPIC_API_KEY),
       datenbank_verbunden: Boolean(env.DB),
       bilderspeicher_verbunden: Boolean(env.PHOTOS),

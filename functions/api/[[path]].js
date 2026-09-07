@@ -491,6 +491,34 @@ async function roomPageText(website) {
   return null;
 }
 
+// Domain der Kette, damit die Suche gar nicht erst auf Portalen landet.
+const PROGRAMM_DOMAIN = {
+  'Marriott Bonvoy': 'marriott.com',
+  'Hilton Honors': 'hilton.com',
+  'IHG One Rewards': 'ihg.com',
+  'World of Hyatt': 'hyatt.com',
+  'Accor ALL': 'all.accor.com',
+  'Radisson Rewards': 'radissonhotels.com',
+  'Wyndham Rewards': 'wyndhamhotels.com',
+  'Choice Privileges': 'choicehotels.com',
+  'Best Western Rewards': 'bestwestern.com',
+  'GHA Discovery': 'ghadiscovery.com',
+  'Melia Rewards': 'melia.com',
+  'Meliá Rewards': 'melia.com',
+  'Scandic Friends': 'scandichotels.com',
+};
+
+function chainDomain(hotel) {
+  if (hotel.website) {
+    try {
+      const host = new URL(hotel.website).hostname.replace(/^www\./, '');
+      // Nur nehmen, wenn es keine Eigendomain des einzelnen Hauses ist.
+      if (Object.values(PROGRAMM_DOMAIN).some((d) => host.endsWith(d))) return host;
+    } catch { /* egal */ }
+  }
+  return PROGRAMM_DOMAIN[hotel.program] || null;
+}
+
 const SEITEN_ZUSATZ = (seite) => `
 
 Der Inhalt der offiziellen Zimmerseite liegt dir hier vor. Nimm die Kategorienamen
@@ -550,6 +578,7 @@ Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown, ohne Vor- oder Na
       "rank": 1,
       "source": "official_hotel_website",
       "source_url": "https://...",
+      "confidence": "high",
       "size_sqm": 26,
       "bed_type": "King oder zwei Einzelbetten",
       "max_occupancy": 2,
@@ -592,6 +621,9 @@ Regeln zum Treueprogramm:
 
 Weitere Regeln:
 - "type" ist "room" oder "suite".
+- "confidence" ist "high", wenn der Name auf einer offiziellen Seite der Kette steht,
+  "medium" bei einem grossen Buchungsportal und "low" bei allem anderen. Kategorien
+  mit "low" gibst du gar nicht erst an.
 - Optionale Felder duerfen null sein. Erfinde nichts, um sie zu fuellen.
 - Jede Kategorie braucht die Quell-URL, aus der sie stammt. Zulaessig sind die Domain der
   Kette und grosse Buchungsportale. Unzulaessig bleiben PDFs, Vermittlerseiten und Archive.
@@ -603,9 +635,17 @@ Wann "found" auf true steht:
 - "found": false gilt nur, wenn du nicht sicher bist, WELCHES Haus gemeint ist, etwa weil
   es in der Stadt mehrere Haeuser dieser Marke gibt und der Name nicht eindeutig ist.`;
 
-async function enrichHotel(env, hotel, seite) {
+async function enrichHotel(env, hotel, seite, nurDomain) {
   const key = env.ANTHROPIC_API_KEY;
   if (!key) throw new Error('ANTHROPIC_API_KEY ist nicht gesetzt');
+
+  const werkzeug = {
+    type: env.WEB_SEARCH_TOOL || 'web_search_20250305',
+    name: 'web_search',
+    max_uses: nurDomain ? 4 : 5,
+  };
+  // Erster Durchgang: ausschliesslich die Seiten der Kette.
+  if (nurDomain) werkzeug.allowed_domains = [nurDomain];
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -622,7 +662,7 @@ async function enrichHotel(env, hotel, seite) {
         role: 'user',
         content: ENRICH_PROMPT(hotel) + (seite ? SEITEN_ZUSATZ(seite) : ''),
       }],
-      tools: [{ type: env.WEB_SEARCH_TOOL || 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+      tools: [werkzeug],
     }),
   });
 
@@ -730,7 +770,18 @@ async function runEnrichment(env, hotelId) {
   try {
     // Erst die Zimmerseite selbst versuchen – echter Text schlaegt jede Suche.
     const seite = await roomPageText(hotel.website).catch(() => null);
-    const result = await enrichHotel(env, hotel, seite);
+
+    // Durchgang eins: nur die Domain der Kette. Erst wenn das zu wenig bringt,
+    // wird offen gesucht – dann eben mit Namen von Buchungsportalen.
+    const domain = chainDomain(hotel);
+    let result = null;
+    if (domain && !seite) {
+      result = await enrichHotel(env, hotel, seite, domain).catch(() => null);
+      const genug = result?.found && (result.rooms || []).length >= 3;
+      if (!genug) result = null;
+    }
+    if (!result) result = await enrichHotel(env, hotel, seite, null);
+
     const stamp = now();
 
     const rooms = Array.isArray(result.rooms) ? result.rooms : [];
@@ -763,7 +814,8 @@ async function runEnrichment(env, hotelId) {
 
     // PDF-Unterlagen und Vermittlerseiten sind fast immer veraltet.
     const UNTAUGLICH = /\.pdf($|\?)|conferencehotelgroup|hotelplanner|webcache|archive\.org/i;
-    const brauchbar = rooms.filter((r) => !r.source_url || !UNTAUGLICH.test(r.source_url));
+    const brauchbar = rooms.filter((r) =>
+      (!r.source_url || !UNTAUGLICH.test(r.source_url)) && r.confidence !== 'low');
 
     // Eine oder zwei Kategorien taugen nicht: daraus laesst sich keine Leiter bilden.
     if (rooms.length > 0 && brauchbar.length < 3) {
@@ -1586,6 +1638,25 @@ export async function onRequest(context) {
         const b = await request.json();
         const stamp = now();
         const ops = [];
+
+        // Umbenennen: die Kategorie und alle Aufenthalte, die darauf zeigen.
+        if (b.rename?.von && b.rename?.nach) {
+          const von = String(b.rename.von).trim();
+          const nach = String(b.rename.nach).trim();
+          if (von && nach && von !== nach) {
+            await env.DB.batch([
+              env.DB.prepare(
+                'UPDATE room_types SET name = ?, confirmed = 1, source = ? WHERE hotel_id = ? AND name = ?'
+              ).bind(nach, 'user', hotelId, von),
+              env.DB.prepare(
+                'UPDATE stays SET booked_room = ? WHERE hotel_id = ? AND booked_room = ?'
+              ).bind(nach, hotelId, von),
+              env.DB.prepare(
+                'UPDATE stays SET received_room = ? WHERE hotel_id = ? AND received_room = ?'
+              ).bind(nach, hotelId, von),
+            ]);
+          }
+        }
 
         for (const r of b.rooms || []) {
           if (!r.name) continue;

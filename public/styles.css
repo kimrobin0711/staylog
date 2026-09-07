@@ -1270,3 +1270,16 @@ details.group-card[open] > summary { margin-bottom: 4px; }
   .dialog-actions { flex-direction: column-reverse; }
   .dialog-actions .btn { width: 100%; }
 }
+
+.room-name {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; color: inherit; text-align: left;
+  border-bottom: 1px dashed var(--line);
+}
+.room-name:hover { color: var(--gold); border-bottom-color: var(--gold); }
+
+.rooms-hint {
+  font-size: .82rem; color: var(--gold-ink);
+  background: var(--gold-wash); border: 1px solid var(--gold-line);
+  border-radius: var(--r-sm); padding: 9px 12px; margin-top: 12px;
+}

@@ -2329,7 +2329,13 @@ function renderRooms() {
     row.appendChild(el('span', 'rank', room.rank ?? ''));
 
     const name = el('span', 'name');
-    name.appendChild(document.createTextNode(room.name));
+
+    const titel = el('button', 'room-name');
+    titel.type = 'button';
+    titel.textContent = room.name;
+    titel.title = 'Namen ändern';
+    titel.addEventListener('click', () => renameRoom(room));
+    name.appendChild(titel);
     const bits = [
       room.size_sqm ? room.size_sqm + ' m²' : null,
       room.bed_type || null,
@@ -2353,9 +2359,46 @@ function renderRooms() {
     list.appendChild(row);
   });
 
+  renderSourceHint(rooms);
   fillRoomSelects(rooms);
   renderRankWarning();
   updateRefreshNote();
+}
+
+// Kategorie umbenennen. Bestehende Aufenthalte werden mitgezogen.
+async function renameRoom(room) {
+  if (!state.hotel) return;
+  const neu = await dialog({
+    titel: 'Kategorie umbenennen',
+    text: 'Schreib den Namen so, wie ihn das Hotel verwendet. '
+      + 'Bestehende Aufenthalte werden mit umgestellt.',
+    ja: 'Übernehmen',
+    eingabe: { wert: room.name, platzhalter: 'Zimmerkategorie' },
+  });
+  if (!neu || neu === room.name) return;
+
+  const res = await api('/hotels/' + state.hotel.id + '/rooms', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ rename: { von: room.name, nach: neu } }),
+  });
+  state.rooms = res.rooms;
+  state.contextCache = {};
+  renderRooms();
+  loadStays();
+}
+
+// Stammen die Namen von einem Buchungsportal, weichen sie oft vom Hotel ab.
+function renderSourceHint(rooms) {
+  const box = $('#rooms-list');
+  const portale = /booking\.com|hotels\.com|expedia|agoda|trivago|kayak/i;
+  const ausPortal = rooms.some((r) => r.source_url && portale.test(r.source_url));
+  if (!ausPortal) return;
+
+  box.appendChild(el('p', 'rooms-hint',
+    'Diese Namen stammen von einem Buchungsportal und können von den Bezeichnungen '
+    + 'des Hotels abweichen. Klick einen Namen an, um ihn zu berichtigen – die Korrektur '
+    + 'gilt dann für alle.'));
 }
 
 // Reihenfolge tauschen und gleich als geprüft speichern.

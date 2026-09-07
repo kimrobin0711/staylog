@@ -2398,10 +2398,26 @@ $('#rooms-refresh').addEventListener('click', async () => {
     'Von dir bestätigte Kategorien bleiben erhalten.\nDas ist einmal im Monat je Hotel möglich.',
     'Recherchieren')) return;
 
+  const hotelId = state.hotel.id;
   const note = $('#rooms-refresh-note');
+  note.textContent = '';
+
+  // Dieselbe Warteanzeige wie beim ersten Anlegen: Schlüsselkarte und Fortschritt.
+  state.pollStarted = Date.now();
+  state.pollGaveUp = false;
+  state.skipEnrichment = false;
+  state.hotel.enrich_status = 'running';
+  state.rooms = [];
+  renderRooms();
+
+  clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(() => {
+    if (state.hotel?.id === hotelId && state.hotel.enrich_status === 'running') renderRooms();
+    else clearInterval(state.pollTimer);
+  }, 4000);
+
   try {
-    // Erst anfragen: der Server sagt, ob die Monatssperre greift.
-    const res = await fetch('/api/hotels/' + state.hotel.id + '/enrich?wait=1', {
+    const res = await fetch('/api/hotels/' + hotelId + '/enrich?wait=1', {
       method: 'POST',
       headers: {
         'x-stay-pass': state.pass,
@@ -2409,8 +2425,10 @@ $('#rooms-refresh').addEventListener('click', async () => {
       },
     });
     const data = await res.json();
+    if (state.hotel?.id !== hotelId) return;
 
     if (res.status === 429 && data.gesperrt) {
+      state.hotel.enrich_status = 'ready';
       note.textContent = 'Zuletzt vor Kurzem recherchiert. Wieder möglich in '
         + data.tage + (data.tage === 1 ? ' Tag.' : ' Tagen.');
       return;
@@ -2419,15 +2437,21 @@ $('#rooms-refresh').addEventListener('click', async () => {
 
     state.hotel = data.hotel;
     state.rooms = data.rooms;
-    state.skipEnrichment = false;
-    note.textContent = '';
-    renderChosenHotel();
-    applyHotelProgram();
-    renderRooms();
-    delete state.imageCache[state.hotel.id];
+    delete state.imageCache[hotelId];
+    delete state.contextCache[hotelId];
     loadGallery();
   } catch (e) {
+    if (state.hotel?.id !== hotelId) return;
+    state.hotel.enrich_status = 'failed';
+    state.pollGaveUp = true;
     note.textContent = e.message;
+  } finally {
+    clearInterval(state.pollTimer);
+    if (state.hotel?.id === hotelId) {
+      renderChosenHotel();
+      applyHotelProgram();
+      renderRooms();
+    }
   }
 });
 

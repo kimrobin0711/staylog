@@ -454,6 +454,53 @@ async function searchHotelsByName(env, q, lat, lon, city) {
 
 /* ------------------------------------------- Zimmerkategorien per Claude */
 
+// Versucht, die Zimmerseite des Hauses direkt zu lesen. Viele Kettenseiten
+// blocken fremde Zugriffe oder laden per JavaScript nach – dann geht es ohne weiter.
+async function roomPageText(website) {
+  if (!website) return null;
+
+  const basis = website.replace(/\/+$/, '');
+  const kandidaten = [basis + '/rooms/', basis + '/rooms', basis + '/zimmer/', basis];
+
+  for (const url of kandidaten) {
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(12000),
+        headers: {
+          'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
+            + '(KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+          'accept': 'text/html,application/xhtml+xml',
+          'accept-language': 'de,en;q=0.8',
+        },
+      });
+      if (!res.ok) continue;
+
+      const html = await res.text();
+      const text = html
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      // Zu wenig Text heisst: die Seite laedt ihren Inhalt per JavaScript nach.
+      if (text.length > 1500) return { url, text: text.slice(0, 14000) };
+    } catch { /* naechster Versuch */ }
+  }
+  return null;
+}
+
+const SEITEN_ZUSATZ = (seite) => `
+
+Der Inhalt der offiziellen Zimmerseite liegt dir hier vor. Nimm die Kategorienamen
+AUSSCHLIESSLICH aus diesem Text und setze als source_url ${seite.url}.
+Suche nur dann zusaetzlich im Netz, wenn der Text keine Zimmerkategorien enthaelt.
+
+--- Beginn der Seite ---
+${seite.text}
+--- Ende der Seite ---`;
+
 const ENRICH_PROMPT = (hotel) => `Recherchiere die Zimmerkategorien dieses Hotels:
 
 Hotel: ${hotel.name}
@@ -556,7 +603,7 @@ Wann "found" auf true steht:
 - "found": false gilt nur, wenn du nicht sicher bist, WELCHES Haus gemeint ist, etwa weil
   es in der Stadt mehrere Haeuser dieser Marke gibt und der Name nicht eindeutig ist.`;
 
-async function enrichHotel(env, hotel) {
+async function enrichHotel(env, hotel, seite) {
   const key = env.ANTHROPIC_API_KEY;
   if (!key) throw new Error('ANTHROPIC_API_KEY ist nicht gesetzt');
 
@@ -571,7 +618,10 @@ async function enrichHotel(env, hotel) {
     body: JSON.stringify({
       model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
       max_tokens: 8000,
-      messages: [{ role: 'user', content: ENRICH_PROMPT(hotel) }],
+      messages: [{
+        role: 'user',
+        content: ENRICH_PROMPT(hotel) + (seite ? SEITEN_ZUSATZ(seite) : ''),
+      }],
       tools: [{ type: env.WEB_SEARCH_TOOL || 'web_search_20250305', name: 'web_search', max_uses: 5 }],
     }),
   });
@@ -678,7 +728,9 @@ async function runEnrichment(env, hotelId) {
   ).bind(now(), hotelId).run();
 
   try {
-    const result = await enrichHotel(env, hotel);
+    // Erst die Zimmerseite selbst versuchen – echter Text schlaegt jede Suche.
+    const seite = await roomPageText(hotel.website).catch(() => null);
+    const result = await enrichHotel(env, hotel, seite);
     const stamp = now();
 
     const rooms = Array.isArray(result.rooms) ? result.rooms : [];

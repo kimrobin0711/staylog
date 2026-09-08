@@ -1178,7 +1178,7 @@ async function enrichHotel(env, hotel, seite, nurDomain) {
     },
     body: JSON.stringify({
       model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-      max_tokens: 16000,   // Haeuser mit vielen Kategorien sprengten 8000
+      max_tokens: 8000,
       messages: [{
         role: 'user',
         content: ENRICH_PROMPT(hotel)
@@ -1205,7 +1205,7 @@ async function enrichHotel(env, hotel, seite, nurDomain) {
     .map((b) => b.input?.query)
     .filter(Boolean);
 
-  const diagnose = { blocks, searches, queries, stop: data.stop_reason, text: text.slice(0, 600) };
+  const diagnose = { blocks, searches, queries, stop: data.stop_reason, text };
 
   const start = text.indexOf('{');
   if (start === -1) {
@@ -1231,7 +1231,9 @@ function parseLoose(raw) {
     return JSON.parse(raw);
   } catch { /* dann reparieren */ }
 
-  const suffixes = [']}', '"}]}', '}]}', '"}}', '}}', '}'];
+  // Das leere Suffix zuerst: haengt nach dem JSON nur noch Text an, etwa die
+  // Gaensefuesschen einer Codeauszeichnung, ist das Abschneiden schon die Loesung.
+  const suffixes = ['', ']}', '"}]}', '}]}', '"}}', '}}', '}'];
   let cut = raw.lastIndexOf('}');
   for (let attempts = 0; cut > 0 && attempts < 40; attempts += 1) {
     const head = raw.slice(0, cut + 1);

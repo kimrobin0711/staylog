@@ -611,6 +611,35 @@ async function findMarriottPage(hotel) {
   }
 }
 
+// Trennt Bettangaben vom Kategorienamen. Ausblicke bleiben stehen, weil sie
+// in den Haeusern tatsaechlich eine hoehere Kategorie bedeuten.
+const BETTMUSTER = /^\s*\d*\s*(kingsize|queensize|twinsize|einzelbett|doppelbett|sofabett|schlafsofa|king|queen|twin|double|single)/i;
+// "2 Schlafzimmer: 1 Kingsize-Bett" ist ebenfalls eine Bettangabe.
+const SCHLAFRAUM = /^\s*\d+\s*schlafzimmer\s*:/i;
+// Der Loungezugang steckt bei diesen Haeusern ohnehin in der Kategorie
+// ("Executive Suite") und wuerde sonst dieselbe Kategorie doppeln.
+const LOUNGE = /^(zugang zur|access to|zugang)/i;
+const AUSBLICK = /(blick|view|aussicht|balkon|terrasse|balcony|terrace)/i;
+
+function canonicalRoomName(name) {
+  if (!name.includes(',')) return name;   // Form "Zimmer mit Kingsize-Bett" unangetastet
+
+  const teile = name.split(',').map((s) => s.trim()).filter(Boolean);
+  const kategorie = [];
+  const ausblick = [];
+
+  for (const teil of teile) {
+    if (AUSBLICK.test(teil)) { ausblick.push(teil); continue; }    // Ausblick bleibt
+    if (BETTMUSTER.test(teil)) continue;                            // Bettangabe faellt weg
+    if (SCHLAFRAUM.test(teil)) continue;                            // "2 Schlafzimmer: ..."
+    if (LOUNGE.test(teil)) continue;                                // Loungezugang
+    kategorie.push(teil);
+  }
+
+  if (!kategorie.length) return name;   // nichts uebrig: lieber Original behalten
+  return [...kategorie, ...ausblick].join(', ');
+}
+
 async function marriottRoomCards(hotel, marshaVorgabe) {
   const marsha = marshaVorgabe || marshaCode(hotel.website);
   if (!marsha) return null;
@@ -638,6 +667,8 @@ async function marriottRoomCards(hotel, marshaVorgabe) {
   if (!Array.isArray(kanten) || !kanten.length) return null;
 
   const zimmer = [];
+  const nachName = new Map();
+
   for (const kante of kanten) {
     const k = kante?.node;
     if (!k?.name) continue;
@@ -650,8 +681,24 @@ async function marriottRoomCards(hotel, marshaVorgabe) {
 
     const istSuite = /suite/i.test(k.name) || /suite/i.test(k.description || '');
 
-    zimmer.push({
-      name: k.name.trim(),
+    // Manche Haeuser fuehren jede Bettvariante als eigene Kategorie:
+    // "1 Queensize-Bett, Standard Zimmer" und "2 Einzelbetten, Standard Zimmer".
+    // Fuer die Upgrade-Leiter ist das eine Kategorie. Der Ausblick dagegen
+    // bleibt eigenstaendig, der ist eine echte Aufwertung.
+    const sauber = canonicalRoomName(k.name.trim());
+    const schluessel = slug(sauber);
+
+    if (nachName.has(schluessel)) {
+      // Schon vorhanden: nur die Bettarten ergaenzen.
+      const vorhanden = nachName.get(schluessel);
+      if (bett && vorhanden.bed_type && !vorhanden.bed_type.includes(bett)) {
+        vorhanden.bed_type += ' oder ' + bett;
+      }
+      continue;
+    }
+
+    const eintrag = {
+      name: sauber,
       code: k.roomTypeCode || null,
       description: k.description || null,
       type: istSuite ? 'suite' : 'room',
@@ -661,7 +708,10 @@ async function marriottRoomCards(hotel, marshaVorgabe) {
       source: 'official_chain_api',
       source_url: url,
       confidence: 'high',
-    });
+    };
+
+    nachName.set(schluessel, eintrag);
+    zimmer.push(eintrag);
   }
 
   return zimmer.length ? { marsha, url, zimmer } : null;
@@ -1220,8 +1270,30 @@ async function enrichHotel(env, hotel, seite, nurDomain) {
     err.diagnose = diagnose;
     throw err;
   }
+  // Freitexte saeubern, damit keine Markierungen in der Datenbank landen.
+  for (const feld of ['description', 'breakfast_note', 'address', 'official_name']) {
+    if (parsed[feld]) parsed[feld] = cleanText(parsed[feld]);
+  }
+  if (Array.isArray(parsed.rooms)) {
+    for (const r of parsed.rooms) {
+      if (r?.description) r.description = cleanText(r.description);
+      if (r?.name) r.name = cleanText(r.name);
+    }
+  }
+
   parsed._diagnose = diagnose;
   return parsed;
+}
+
+// Das Modell haengt an Text aus der Websuche gelegentlich Zitatmarkierungen an.
+// Die haben in der Datenbank nichts zu suchen.
+function cleanText(wert) {
+  if (typeof wert !== 'string') return wert;
+  return wert
+    .replace(/<\/?cite[^>]*>/gi, '')
+    .replace(/\[\d+(?:[-,]\d+)*\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim() || null;
 }
 
 // Bricht die Antwort mitten in der Kategorienliste ab, schneiden wir hinter dem
@@ -1464,10 +1536,41 @@ async function runEnrichment(env, hotelId) {
 
     // Offizielle Namen sind verbindlich. Portalnamen gelten als vorlaeufig.
     // Metasuchen, Sammelseiten und PDFs bleiben draussen.
-    const brauchbar = rooms
+    let brauchbar = rooms
       .filter((r) => r.source_url && !/\.pdf($|\?)/i.test(r.source_url) && r.confidence !== 'low')
       .filter((r) => istOffiziell(r.source_url) || istPortal(r.source_url))
       .map((r) => ({ ...r, source: istOffiziell(r.source_url) ? r.source : 'portal_provisional' }));
+
+    // Namen vereinheitlichen, egal woher sie kommen: Bettangaben raus,
+    // Ausblick bleibt, Doppelte zusammenfassen.
+    const zusammengefasst = [];
+    const bekannt = new Map();
+
+    for (const r of brauchbar) {
+      const sauber = canonicalRoomName(String(r.name || '').trim());
+      if (!sauber) continue;
+      const schluessel = slug(sauber);
+
+      const vorhanden = bekannt.get(schluessel);
+      if (vorhanden) {
+        // Doppelte Kategorie: die vollstaendigeren Angaben gewinnen.
+        vorhanden.size_sqm = vorhanden.size_sqm || r.size_sqm || null;
+        vorhanden.max_occupancy = vorhanden.max_occupancy || r.max_occupancy || null;
+        vorhanden.description = vorhanden.description || r.description || null;
+        if (r.bed_type && vorhanden.bed_type && !vorhanden.bed_type.includes(r.bed_type)) {
+          vorhanden.bed_type += ' oder ' + r.bed_type;
+        } else if (r.bed_type && !vorhanden.bed_type) {
+          vorhanden.bed_type = r.bed_type;
+        }
+        continue;
+      }
+
+      const eintrag = { ...r, name: sauber };
+      bekannt.set(schluessel, eintrag);
+      zusammengefasst.push(eintrag);
+    }
+
+    brauchbar = zusammengefasst;
 
     // Gibt es offizielle Namen, verdraengen sie die vorlaeufigen komplett.
     const offizielle = brauchbar.filter((r) => r.source !== 'portal_provisional');
@@ -2433,8 +2536,19 @@ export async function onRequest(context) {
           }
         }
 
+        // Auch hier vereinheitlichen, sonst kommen Bettvarianten durch die
+        // Hintertuer wieder herein.
+        const gesehen = new Set();
         for (const r of b.rooms || []) {
           if (!r.name) continue;
+
+          const sauber = canonicalRoomName(String(r.name).trim());
+          if (!sauber) continue;
+          const schluessel = slug(sauber);
+          if (gesehen.has(schluessel)) continue;
+          gesehen.add(schluessel);
+
+          r.name = sauber;
           const confirmed = r.confirmed === false ? 0 : 1;
           ops.push(
             env.DB.prepare(

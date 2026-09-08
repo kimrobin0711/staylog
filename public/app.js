@@ -267,6 +267,66 @@ const debounce = (fn, ms = 300) => {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 };
 
+/* ------------------------------------------------------ Bild vergroessern */
+
+// Merkt sich die Bilder der zuletzt geöffneten Reihe, damit man blättern kann.
+let lichtbilder = [];
+let lichtIndex = 0;
+
+function zeigeLichtbild(index) {
+  const bild = lichtbilder[index];
+  if (!bild) return;
+  lichtIndex = index;
+
+  $('#lightbox-img').src = bild.src;
+  $('#lightbox-img').alt = bild.caption || '';
+  $('#lightbox-caption').textContent = bild.caption || '';
+  $('#lightbox-prev').hidden = lichtbilder.length < 2;
+  $('#lightbox-next').hidden = lichtbilder.length < 2;
+  $('#lightbox').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+function schliesseLichtbild() {
+  $('#lightbox').hidden = true;
+  $('#lightbox-img').src = '';
+  document.body.style.overflow = '';
+}
+
+const blaettern = (schritt) =>
+  zeigeLichtbild((lichtIndex + schritt + lichtbilder.length) % lichtbilder.length);
+
+// Macht die Bilder einer Reihe anklickbar.
+function machVergroesserbar(reihe) {
+  const bilder = [...reihe.querySelectorAll('img')];
+  bilder.forEach((img, i) => {
+    img.addEventListener('click', () => {
+      lichtbilder = bilder.map((b) => ({
+        src: b.dataset.full || b.src,
+        caption: b.closest('figure')?.querySelector('figcaption')?.textContent || b.alt || '',
+      }));
+      zeigeLichtbild(i);
+    });
+  });
+}
+
+// Sofort verdrahten – das Skript laeuft ohnehin am Ende der Seite.
+$('#lightbox-close').addEventListener('click', schliesseLichtbild);
+$('#lightbox-prev').addEventListener('click', (e) => { e.stopPropagation(); blaettern(-1); });
+$('#lightbox-next').addEventListener('click', (e) => { e.stopPropagation(); blaettern(1); });
+
+// Klick neben das Bild schließt.
+$('#lightbox').addEventListener('click', (e) => {
+  if (e.target.id === 'lightbox') schliesseLichtbild();
+});
+
+document.addEventListener('keydown', (e) => {
+  if ($('#lightbox').hidden) return;
+  if (e.key === 'Escape') schliesseLichtbild();
+  if (e.key === 'ArrowLeft') blaettern(-1);
+  if (e.key === 'ArrowRight') blaettern(1);
+});
+
 /* --------------------------------------------------------------- Dialoge */
 
 // Eigene Dialoge statt der Browserfenster: gleiche Optik auf jedem Gerät.
@@ -1347,6 +1407,7 @@ function showDetail(s) {
       if (p.caption) fig.appendChild(el('figcaption', null, p.caption));
       gallery.appendChild(fig);
     }
+    machVergroesserbar(gallery);
     section.appendChild(gallery);
     box.appendChild(section);
   }
@@ -2158,6 +2219,7 @@ function galleryStrip(data, alt) {
     fig.appendChild(credit);
     strip.appendChild(fig);
   }
+  machVergroesserbar(strip);
   return strip;
 }
 

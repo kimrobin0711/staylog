@@ -1308,9 +1308,21 @@ async function runEnrichment(env, hotelId) {
     // Hat das Modell erst jetzt die Kettenadresse gefunden, holen wir die
     // verbindliche Liste nach und lassen sie in einem zweiten, kurzen Aufruf
     // nur noch sortieren.
-    if (!karten && result.chain_url) {
-      const nachtraeglich = { ...hotel, website: result.chain_url, program: result.program };
-      const marsha = marshaCode(result.chain_url);
+    // Die Kettenadresse kann ueberall stecken: im Feld, in der Webseite oder in
+    // den Quellen der gefundenen Kategorien. Ueberall nachsehen.
+    const adressen = [
+      result.chain_url,
+      result.website,
+      ...(Array.isArray(result.rooms) ? result.rooms.map((r) => r.source_url) : []),
+    ].filter(Boolean);
+
+    const kettenAdresse = adressen.find((u) => marshaCode(u))
+      || adressen.find((u) => Object.values(PROGRAMM_DOMAIN).some((d) => u.includes(d)))
+      || null;
+
+    if (!karten && kettenAdresse) {
+      const nachtraeglich = { ...hotel, website: kettenAdresse, program: result.program };
+      const marsha = marshaCode(kettenAdresse);
 
       if (marsha) karten = await marriottRoomCards(nachtraeglich, marsha).catch(() => null);
       if (!karten) {
@@ -1327,7 +1339,7 @@ async function runEnrichment(env, hotelId) {
         };
         const sortierung = await enrichHotel(env, nachtraeglich, zweite, null).catch(() => null);
         if (sortierung?.rooms_order) result.rooms_order = sortierung.rooms_order;
-        if (!result.website) result.website = result.chain_url;
+        if (!result.website) result.website = kettenAdresse;
       }
     }
 

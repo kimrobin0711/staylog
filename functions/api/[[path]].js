@@ -1113,6 +1113,47 @@ Wann "found" auf true steht:
 - "found": false gilt nur, wenn du nicht sicher bist, WELCHES Haus gemeint ist, etwa weil
   es in der Stadt mehrere Haeuser dieser Marke gibt und der Name nicht eindeutig ist.`;
 
+// Kurzer Aufruf, der ausschliesslich sortiert. Keine Websuche, kleines Budget,
+// kurze Antwort – damit kann nichts abbrechen.
+async function sortRooms(env, hotel, seite) {
+  const key = env.ANTHROPIC_API_KEY;
+  if (!key) return null;
+
+  const auftrag = 'Sortiere die folgenden Zimmerkategorien des Hotels "' + hotel.name
+    + '" von der einfachsten zur hochwertigsten. Suiten stehen ueber gewoehnlichen '
+    + 'Zimmern, Praesidenten- und Penthouse-Suiten ganz oben.\n\n'
+    + 'Antworte NUR mit einem JSON-Array der Namen, wortgetreu und vollstaendig, '
+    + 'ohne weiteren Text:\n["einfachste", "...", "hochwertigste"]\n\n'
+    + seite.text;
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    signal: AbortSignal.timeout(45000),
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: auftrag }],
+    }),
+  });
+  if (!res.ok) return null;
+
+  const daten = await res.json();
+  const text = (daten.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  const roh = text.slice(text.indexOf('['), text.lastIndexOf(']') + 1);
+
+  try {
+    const liste = JSON.parse(roh);
+    return Array.isArray(liste) ? liste.filter((n) => typeof n === 'string') : null;
+  } catch {
+    return null;
+  }
+}
+
 async function enrichHotel(env, hotel, seite, nurDomain) {
   const key = env.ANTHROPIC_API_KEY;
   if (!key) throw new Error('ANTHROPIC_API_KEY ist nicht gesetzt');
@@ -1330,6 +1371,10 @@ async function runEnrichment(env, hotelId) {
         if (schema) karten = { marsha: null, url: schema.url, zimmer: schema.zimmer };
       }
 
+      // Nur uebernehmen, wenn die nachgeholte Liste mindestens so gut ist.
+      const bisher = Array.isArray(result.rooms) ? result.rooms.length : 0;
+      if (karten && karten.zimmer.length < Math.max(3, bisher)) karten = null;
+
       if (karten) {
         const zweite = {
           url: karten.url,
@@ -1337,8 +1382,10 @@ async function runEnrichment(env, hotelId) {
           text: karten.zimmer.map((z, i) =>
             (i + 1) + '. ' + z.name + ' | ' + (z.description || '')).join('\n'),
         };
-        const sortierung = await enrichHotel(env, nachtraeglich, zweite, null).catch(() => null);
-        if (sortierung?.rooms_order) result.rooms_order = sortierung.rooms_order;
+        // Scheitert die Sortierung, bleibt die Liste trotzdem – dann eben in
+        // der Reihenfolge des Betreibers.
+        const sortierung = await sortRooms(env, nachtraeglich, zweite).catch(() => null);
+        if (sortierung?.length) result.rooms_order = sortierung;
         if (!result.website) result.website = kettenAdresse;
       }
     }

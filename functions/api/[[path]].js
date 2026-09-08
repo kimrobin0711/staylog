@@ -522,6 +522,62 @@ async function browserMarkdown(env, url, schonGewartet = false) {
   }
 }
 
+// Viele Ketten legen ihre Zimmerkategorien nach dem schema.org-Standard als
+// "HotelRoom" ins HTML. Hilton tut das, andere ebenfalls. Das ist die sauberste
+// Quelle ueberhaupt: offiziell, vollstaendig, in der Sprache der Seite.
+function hotelRoomsFromSchema(html, quelle) {
+  if (!html) return null;
+
+  const zimmer = [];
+  const gesehen = new Set();
+
+  // Die Bloecke stehen als JSON im Seitentext, oft mehrfach und verschachtelt.
+  const muster = /"@type"\s*:\s*"HotelRoom"\s*,\s*"name"\s*:\s*"((?:[^"\\]|\\.)+)"/g;
+  let treffer;
+
+  while ((treffer = muster.exec(html)) && zimmer.length < 40) {
+    let name;
+    try {
+      name = JSON.parse('"' + treffer[1] + '"').trim();
+    } catch {
+      continue;
+    }
+    if (!name || name.length > 90) continue;
+
+    const schluessel = slug(name);
+    if (gesehen.has(schluessel)) continue;
+    gesehen.add(schluessel);
+
+    // Im Umfeld des Namens stehen Beschreibung, Bett und Groesse.
+    const umfeld = html.slice(treffer.index, treffer.index + 4000);
+
+    const beschreibung = (umfeld.match(/"description"\s*:\s*"((?:[^"\\]|\\.){10,400})"/) || [])[1];
+    const bettart = (umfeld.match(/"typeOfBed"\s*:\s*"([^"]{2,40})"/) || [])[1];
+    const bettzahl = (umfeld.match(/"numberOfBeds"\s*:\s*(\d+)/) || [])[1];
+    const flaeche = (umfeld.match(/"floorSize"[^}]*?"value"\s*:\s*"?(\d+)/) || [])[1];
+    const belegung = (umfeld.match(/"occupancy"[^}]*?"value"\s*:\s*"?(\d+)/) || [])[1];
+
+    let text = null;
+    if (beschreibung) {
+      try { text = JSON.parse('"' + beschreibung + '"').slice(0, 300); } catch { /* egal */ }
+    }
+
+    zimmer.push({
+      name,
+      description: text,
+      type: /suite/i.test(name) ? 'suite' : 'room',
+      size_sqm: flaeche ? Number(flaeche) : null,
+      bed_type: bettart ? (bettzahl ? bettzahl + ' ' + bettart : bettart) : null,
+      max_occupancy: belegung ? Number(belegung) : null,
+      source: 'official_schema_org',
+      source_url: quelle,
+      confidence: 'high',
+    });
+  }
+
+  return zimmer.length >= 3 ? zimmer : null;
+}
+
 // Marriott stellt die Zimmerkategorien als offene Abfrage bereit. Die Kennung
 // des Hauses steckt in der Adresse: .../hotels/vlcva-ac-hotel-valencia/
 function marshaCode(website) {
@@ -579,6 +635,78 @@ async function marriottRoomCards(hotel) {
   }
 
   return zimmer.length ? { marsha, url, zimmer } : null;
+}
+
+// Holt das rohe HTML einer Seite ueber den Browser. Nur so kommen wir an die
+// schema.org-Bloecke – die Markdown-Fassung wirft sie weg.
+async function browserContent(env, url) {
+  const konto = (env.CF_ACCOUNT_ID || '').trim();
+  const token = (env.CF_BROWSER_TOKEN || '').trim();
+  if (!konto || !token || !url) return null;
+
+  const limit = Number(env.BROWSER_MONTHLY_LIMIT || 600);
+  if (await usageCount(env, 'browser') >= limit) return null;
+
+  try {
+    const res = await fetch(
+      'https://api.cloudflare.com/client/v4/accounts/' + konto + '/browser-rendering/content',
+      {
+        method: 'POST',
+        signal: AbortSignal.timeout(60000),
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+        body: JSON.stringify({ url }),
+      }
+    );
+    await usageAdd(env, 'browser', 1);
+    if (!res.ok) {
+      letzterBrowserfehler = 'HTTP ' + res.status;
+      return null;
+    }
+    const daten = await res.json();
+    const html = typeof daten.result === 'string' ? daten.result : null;
+    return html && html.length > 2000 ? html : null;
+  } catch (err) {
+    letzterBrowserfehler = String(err.message || err);
+    return null;
+  }
+}
+
+// Versucht der Reihe nach, die Kategorien aus schema.org-Bloecken zu lesen.
+async function schemaRooms(env, hotel) {
+  const kandidaten = [
+    subUrl(hotel.website, 'rooms'),
+    hotelBaseUrl(hotel.website),
+    hotel.website,
+  ].filter(Boolean);
+
+  const gesehen = new Set();
+  for (const url of kandidaten) {
+    if (gesehen.has(url)) continue;
+    gesehen.add(url);
+
+    // Erst der einfache Weg, dann der Browser.
+    let html = null;
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(12000),
+        headers: {
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+            + '(KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+          accept: 'text/html,application/xhtml+xml',
+          'accept-language': 'de-DE,de;q=0.9,en;q=0.8',
+        },
+      });
+      if (res.ok) html = await res.text();
+    } catch { /* dann der Browser */ }
+
+    let zimmer = hotelRoomsFromSchema(html, url);
+    if (zimmer) return { url, zimmer };
+
+    html = await browserContent(env, url);
+    zimmer = hotelRoomsFromSchema(html, url);
+    if (zimmer) return { url, zimmer };
+  }
+  return null;
 }
 
 // Sammelt mehrere offizielle Unterseiten zu einem gemeinsamen Text. Bei Marriott
@@ -1077,16 +1205,24 @@ async function runEnrichment(env, hotelId) {
     if ((chainDomain(hotel) || '').includes('marriott.com')) {
       karten = await marriottRoomCards(hotel).catch(() => null);
     }
+    // Zweitbeste Quelle: die schema.org-Bloecke der Hotelseite.
+    if (!karten) {
+      const schema = await schemaRooms(env, hotel).catch(() => null);
+      if (schema) karten = { marsha: null, url: schema.url, zimmer: schema.zimmer };
+    }
 
     let seite = karten ? {
       url: karten.url,
       quellen: [karten.url],
-      quelle: 'marriott-api',
+      quelle: karten.marsha ? 'marriott-api' : 'schema-org',
       verbindlich: true,
       text: 'Verbindliche Zimmerkategorien des Hauses, direkt vom Betreiber:\n'
         + karten.zimmer.map((z, i) =>
-            (i + 1) + '. ' + z.name + ' | ' + (z.description || '')
-            + ' | Code ' + z.code + ' | ' + (z.size_sqm ? z.size_sqm + ' m²' : 'Größe unbekannt')
+            (i + 1) + '. ' + z.name
+            + ' | ' + (z.description || '')
+            + (z.code ? ' | Code ' + z.code : '')
+            + ' | ' + (z.size_sqm ? z.size_sqm + ' m²' : 'Größe unbekannt')
+            + ' | Bett: ' + (z.bed_type || 'unbekannt')
             + ' | bis ' + (z.max_occupancy || '?') + ' Personen'
           ).join('\n'),
     } : await officialCorpus(env, hotel, kette);

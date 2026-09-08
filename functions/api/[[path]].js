@@ -585,12 +585,42 @@ function marshaCode(website) {
   return treffer ? treffer[1].toUpperCase() : null;
 }
 
-async function marriottRoomCards(hotel) {
-  const marsha = marshaCode(hotel.website);
+// Sucht die Marriott-Seite eines Hauses, dessen Adresse woanders liegt.
+// Weiche Marken wie Tribute Portfolio treten oft unter eigener Domain auf.
+async function findMarriottPage(hotel) {
+  const suche = [hotel.name, hotel.city, 'marriott hotel'].filter(Boolean).join(' ');
+  try {
+    const res = await fetch(
+      'https://duckduckgo.com/html/?q=' + encodeURIComponent('site:marriott.com ' + suche),
+      {
+        signal: AbortSignal.timeout(12000),
+        headers: {
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+            + '(KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+        },
+      }
+    );
+    if (!res.ok) return null;
+
+    const html = await res.text();
+    // Erste Adresse der Form /hotels/xxxxx-name/ herausziehen.
+    const treffer = html.match(/marriott\.com(?:%2F|\/)[a-z-]{2,5}(?:%2F|\/)hotels(?:%2F|\/)([a-z0-9]{5})-/i);
+    return treffer ? treffer[1].toUpperCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function marriottRoomCards(hotel, marshaVorgabe) {
+  const marsha = marshaVorgabe || marshaCode(hotel.website);
   if (!marsha) return null;
 
   const url = 'https://www.marriott.com/services/marriott-hws/roomCards/'
     + '?marsha=' + marsha + '&locale=de-DE&acrsEnabled=false';
+
+  const verweis = hotel.website && /marriott\.com/i.test(hotel.website)
+    ? hotel.website.replace(/\/+$/, '') + '/rooms/'
+    : 'https://www.marriott.com/';
 
   const res = await fetch(url, {
     signal: AbortSignal.timeout(15000),
@@ -598,7 +628,7 @@ async function marriottRoomCards(hotel) {
       'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
         + '(KHTML, like Gecko) Chrome/125.0 Safari/537.36',
       accept: 'application/json',
-      referer: (hotel.website || '').replace(/\/+$/, '') + '/rooms/',
+      referer: verweis,
     },
   });
   if (!res.ok) return null;
@@ -709,7 +739,11 @@ async function schemaRooms(env, hotel) {
 // stehen die Kategorienamen etwa in den Bildbeschreibungen der Galerie.
 async function officialCorpus(env, hotel, kette) {
   // Die Galerie zuerst: dort stehen die Kategorienamen in den Bildbeschreibungen.
-  const seiten = kette ? ['photos', 'rooms', 'overview'] : ['rooms', 'zimmer'];
+  // Nur Marriott hat Galerie und Uebersicht unter eigenen Adressen. Bei anderen
+  // Ketten liefern diese Pfade Fehlerseiten und kosten nur Zeit.
+  const seiten = (kette || '').includes('marriott.com')
+    ? ['photos', 'rooms', 'overview']
+    : ['rooms'];
 
   const teile = [];
   const quellen = [];
@@ -1221,8 +1255,15 @@ async function runEnrichment(env, hotelId) {
 
     // Marriott zuerst: die offene Abfrage liefert die verbindlichen Namen.
     let karten = null;
-    if ((chainDomain(hotel) || '').includes('marriott.com')) {
-      karten = await marriottRoomCards(hotel).catch(() => null);
+    const istMarriott = (chainDomain(hotel) || '').includes('marriott.com')
+      || hotel.program === 'Marriott Bonvoy'
+      || /marriott|autograph|tribute|moxy|aloft|element|westin|sheraton|meridien|renaissance|courtyard|residence inn|fairfield|ac hotel|st\.? regis|luxury collection|w hotel|delta hotels/i
+        .test([hotel.name, hotel.brand, hotel.chain].filter(Boolean).join(' '));
+
+    if (istMarriott) {
+      // Steht keine Marriott-Adresse in der Datenbank, suchen wir sie zuerst.
+      const marsha = marshaCode(hotel.website) || await findMarriottPage(hotel).catch(() => null);
+      if (marsha) karten = await marriottRoomCards(hotel, marsha).catch(() => null);
     }
     // Zweitbeste Quelle: die schema.org-Bloecke der Hotelseite.
     if (!karten) {
@@ -2196,12 +2237,16 @@ export async function onRequest(context) {
         if ((kette || '').includes('marriott.com')) {
           karten = await marriottRoomCards(hotel).catch(() => null);
         }
+        if (!karten) {
+          const schema = await schemaRooms(env, hotel).catch(() => null);
+          if (schema) karten = { marsha: null, url: schema.url, zimmer: schema.zimmer };
+        }
         const seite = karten ? {
           url: karten.url,
           quellen: [karten.url],
-          quelle: 'marriott-api',
+          quelle: karten.marsha ? 'marriott-api' : 'schema-org',
           verbindlich: true,
-          text: karten.zimmer.map((z) => z.name + ' | ' + z.description + ' | ' + z.code).join('\n'),
+          text: karten.zimmer.map((z) => z.name + ' | ' + (z.description || '')).join('\n'),
         } : await officialCorpus(env, hotel, kette);
 
         const bericht = {

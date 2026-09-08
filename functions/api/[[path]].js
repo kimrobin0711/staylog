@@ -738,10 +738,11 @@ async function schemaRooms(env, hotel) {
 // Sammelt mehrere offizielle Unterseiten zu einem gemeinsamen Text. Bei Marriott
 // stehen die Kategorienamen etwa in den Bildbeschreibungen der Galerie.
 async function officialCorpus(env, hotel, kette) {
+  const kettenDomain = typeof kette === 'string' ? kette : '';
   // Die Galerie zuerst: dort stehen die Kategorienamen in den Bildbeschreibungen.
   // Nur Marriott hat Galerie und Uebersicht unter eigenen Adressen. Bei anderen
   // Ketten liefern diese Pfade Fehlerseiten und kosten nur Zeit.
-  const seiten = (kette || '').includes('marriott.com')
+  const seiten = kettenDomain.includes('marriott.com')
     ? ['photos', 'rooms', 'overview']
     : ['rooms'];
 
@@ -753,9 +754,9 @@ async function officialCorpus(env, hotel, kette) {
     if (!url) continue;
 
     // Zwischen den Abrufen Luft lassen, sonst greift die Ratenbegrenzung.
-    if (kette && teile.length) await warte(22000);
+    if (kettenDomain && teile.length) await warte(22000);
 
-    const seite = kette
+    const seite = kettenDomain
       ? await browserMarkdown(env, url)
       : await roomPageText(url).catch(() => null);
 
@@ -772,7 +773,7 @@ async function officialCorpus(env, hotel, kette) {
   return {
     url: quellen[0],
     quellen,
-    quelle: kette ? 'browser' : 'fetch',
+    quelle: kettenDomain ? 'browser' : 'fetch',
     text: teile.join('\n\n').slice(0, 30000),
   };
 }
@@ -1251,7 +1252,7 @@ async function runEnrichment(env, hotelId) {
     // Mehrstufig. Bei Kettenseiten lohnt der einfache Abruf nicht: die bauen ihre
     // Zimmerlisten erst im Browser auf. Dort also gleich Stufe zwei.
     const ziel = roomsUrl(hotel.website);
-    const kette = Boolean(chainDomain(hotel));
+    const kette = chainDomain(hotel);   // Domain der Kette oder null
 
     // Marriott zuerst: die offene Abfrage liefert die verbindlichen Namen.
     let karten = null;
@@ -1289,6 +1290,7 @@ async function runEnrichment(env, hotelId) {
     } : await officialCorpus(env, hotel, kette);
     if (!seite && kette) seite = await browserMarkdown(env, hotel.website);
     if (!seite && !kette) seite = await roomPageText(hotel.website).catch(() => null);
+
 
     // Durchgang eins: nur die Domain der Kette. Erst wenn das zu wenig bringt,
     // wird offen gesucht – dann eben mit Namen von Buchungsportalen.

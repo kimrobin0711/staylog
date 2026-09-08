@@ -1931,6 +1931,7 @@ function renderHotelOptions(extra) {
     b.type = 'button';
 
     const label = el('span');
+    label.title = h.name;                    // voller Name beim Überfahren
     label.appendChild(document.createTextNode(h.name));
     if (h.known) label.appendChild(el('span', 'known-mark', 'in stayLOG'));
     else if (h.aktuell) label.appendChild(el('span', 'known-mark aktuell', 'aktuell'));

@@ -486,12 +486,28 @@ body { padding-bottom: 0; }
 .options { margin-top: 8px; display: flex; flex-direction: column; }
 .option {
   text-align: left; border: 0; border-bottom: 1px solid var(--line-soft);
-  background: none; cursor: pointer; padding: 12px 4px;
-  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  background: none; cursor: pointer; padding: 11px 4px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 14px;
 }
 .option:last-child { border-bottom: 0; }
 .option:hover { background: var(--card); }
-.option small { color: var(--ink-soft); flex: none; }
+
+/* Lange Hotelnamen kuerzen statt umbrechen – eine Zeile je Treffer. */
+.option > span:first-child {
+  flex: 1 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.option small {
+  color: var(--ink-soft); flex: 0 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: right;
+}
+.option .known-mark { flex: none; }
+
+@media (max-width: 560px) {
+  /* Auf schmalen Schirmen ist der Ort wichtiger als das Programm. */
+  .option small { max-width: 42%; }
+}
 .options-empty { color: var(--ink-soft); padding: 12px 4px; font-size: .9rem; }
 
 .form-block {

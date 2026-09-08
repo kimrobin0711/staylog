@@ -1303,6 +1303,32 @@ async function runEnrichment(env, hotelId) {
 
     const stamp = now();
 
+    // Hat das Modell erst jetzt die Kettenadresse gefunden, holen wir die
+    // verbindliche Liste nach und lassen sie in einem zweiten, kurzen Aufruf
+    // nur noch sortieren.
+    if (!karten && result.chain_url) {
+      const nachtraeglich = { ...hotel, website: result.chain_url, program: result.program };
+      const marsha = marshaCode(result.chain_url);
+
+      if (marsha) karten = await marriottRoomCards(nachtraeglich, marsha).catch(() => null);
+      if (!karten) {
+        const schema = await schemaRooms(env, nachtraeglich).catch(() => null);
+        if (schema) karten = { marsha: null, url: schema.url, zimmer: schema.zimmer };
+      }
+
+      if (karten) {
+        const zweite = {
+          url: karten.url,
+          verbindlich: true,
+          text: karten.zimmer.map((z, i) =>
+            (i + 1) + '. ' + z.name + ' | ' + (z.description || '')).join('\n'),
+        };
+        const sortierung = await enrichHotel(env, nachtraeglich, zweite, null).catch(() => null);
+        if (sortierung?.rooms_order) result.rooms_order = sortierung.rooms_order;
+        if (!result.website) result.website = result.chain_url;
+      }
+    }
+
     let rooms = Array.isArray(result.rooms) ? result.rooms : [];
 
     // Steht eine verbindliche Liste bereit, gilt sie – das Modell liefert nur

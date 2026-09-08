@@ -1375,9 +1375,17 @@ async function runEnrichment(env, hotelId) {
 
     // Zugelassen sind nur die Kette und wenige grosse Portale. Alles andere –
     // Metasuchen, Stadtportale, PDFs – liefert erfundene oder veraltete Namen.
+    // Auch die Seiten, die das Modell gerade erst gefunden hat, sind offiziell.
+    // Sonst faellt ein Haus durch, dessen Webseite in der Datenbank noch fehlt.
+    const gefundeneDomains = [result.website, result.chain_url]
+      .filter(Boolean)
+      .map((u) => eigeneDomain({ website: u }))
+      .filter(Boolean);
+
     const offizielleQuellen = [
       chainDomain(hotel),
       eigeneDomain(hotel),
+      ...gefundeneDomains,
       ...Object.values(PROGRAMM_DOMAIN),
     ].filter(Boolean);
     // Die offene Abfrage des Betreibers liegt auf derselben Domain, passt also.

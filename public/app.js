@@ -2275,10 +2275,20 @@ function renderRooms() {
   const found = state.rooms.length;
   const rooms = state.rooms;
 
+  const vorlaeufig = rooms.some((r) => r.provisional === 1);
+
   if (found) {
     status.innerHTML = '';
-    status.appendChild(el('span', 'rooms-found',
-      '✓ ' + found + (found === 1 ? ' Kategorie' : ' Kategorien') + ' gefunden'));
+    status.appendChild(el('span', vorlaeufig ? 'rooms-provisional' : 'rooms-found',
+      (vorlaeufig ? '◌ ' : '✓ ') + found + (found === 1 ? ' Kategorie' : ' Kategorien')
+      + (vorlaeufig ? ' vorläufig' : ' gefunden')));
+
+    if (vorlaeufig) {
+      list.appendChild(el('p', 'rooms-hint',
+        'Die offizielle Seite gibt keine Zimmerliste her. Diese Namen stammen von einem '
+        + 'Buchungsportal und können vom Hotel abweichen. Wer die richtigen Bezeichnungen '
+        + 'kennt, klickt einen Namen an und berichtigt ihn – das gilt dann für alle.'));
+    }
   } else {
     // Bewusst keine Ersatzliste: falsche Namen sind schlechter als keine.
     status.textContent = 'nicht ermittelt';
@@ -2332,6 +2342,11 @@ function renderRooms() {
     titel.title = 'Namen ändern';
     titel.addEventListener('click', () => renameRoom(room));
     name.appendChild(titel);
+    if ((room.provisional === 1 || room.source === 'portal_provisional') && !room.confirmed) {
+      const mark = el('span', 'provisional', 'vorläufig');
+      mark.title = 'Name stammt von einem Buchungsportal – anklicken zum Berichtigen';
+      name.appendChild(mark);
+    }
     const bits = [
       room.size_sqm ? room.size_sqm + ' m²' : null,
       room.bed_type || null,
@@ -2520,9 +2535,10 @@ function keycardAnimation() {
 
 // Was gerade wirklich passiert – die Schritte laufen der Reihe nach.
 function waitingLine(seconds) {
-  if (seconds < 12) return 'Die offizielle Hotelseite wird gesucht …';
-  if (seconds < 28) return 'Die Zimmerseite des Hauses wird gelesen …';
-  if (seconds < 45) return 'Kategorien werden erfasst und sortiert …';
+  if (seconds < 10) return 'Die Zimmerkategorien werden beim Betreiber abgefragt …';
+  if (seconds < 30) return 'Die offiziellen Seiten des Hauses werden gelesen …';
+  if (seconds < 60) return 'Kategorien werden erfasst und sortiert …';
+  if (seconds < 100) return 'Die Reihenfolge wird geprüft …';
   return 'Fast fertig – das Haus macht es uns schwer …';
 }
 

@@ -72,6 +72,12 @@ OpenStreetMap ist kostenlos. Cloudflare D1 und R2 liegen bei diesem Volumen im F
 Die Claude API kostet 10 Dollar pro 1.000 Suchen plus Token, bei höchstens vier Suchen je
 Hotel und einem Aufruf pro Hotel. Zweihundert Hotels bleiben damit im einstelligen Bereich.
 
+## Bindungen
+
+Seit der Umstellung auf den echten Browser gibt es eine `wrangler.toml`. Sie
+loest die Pflege im Dashboard ab: Datenbank, Bilderspeicher und Browser stehen
+dort. Geheimnisse und Textvariablen bleiben weiterhin im Dashboard.
+
 ## Variablen und Geheimnisse
 
 | Name | Art | Zweck |
@@ -84,6 +90,9 @@ Hotel und einem Aufruf pro Hotel. Zweihundert Hotels bleiben damit im einstellig
 | `WEB_SEARCH_TOOL` | Text | `web_search_20250305` |
 | `GOOGLE_API_KEY` | Secret | optional, Bewertung und Bilder |
 | `OPEN_MODE` | Text | `read` oder `full`, sonst leer lassen |
+| `CF_ACCOUNT_ID` | Secret | Konto-Kennung fuer den Browserdienst |
+| `CF_BROWSER_TOKEN` | Secret | Token mit der Berechtigung Browser Run |
+| `BROWSER_MONTHLY_LIMIT` | Text | Obergrenze fuer Browserabrufe, Vorgabe 600 |
 
 ## Veröffentlichen
 

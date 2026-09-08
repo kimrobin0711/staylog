@@ -455,14 +455,19 @@ async function searchHotelsByName(env, q, lat, lon, city) {
 
 /* ------------------------------------------- Zimmerkategorien per Claude */
 
+// Merkt sich, warum der Browser nichts geliefert hat – nur fuer die Diagnose.
+let letzterBrowserfehler = null;
+
+const warte = (ms) => new Promise((fertig) => setTimeout(fertig, ms));
+
 // Stufe zwei: die Seite in Cloudflares Browser laden, damit JavaScript laeuft.
 // Marriott und Hilton bauen ihre Zimmerlisten erst im Browser auf.
-async function browserMarkdown(env, url) {
+async function browserMarkdown(env, url, schonGewartet = false) {
   const konto = (env.CF_ACCOUNT_ID || '').trim();
   const token = (env.CF_BROWSER_TOKEN || '').trim();
   if (!konto || !token || !url) return null;
 
-  const limit = Number(env.BROWSER_MONTHLY_LIMIT || 300);
+  const limit = Number(env.BROWSER_MONTHLY_LIMIT || 600);
   if (await usageCount(env, 'browser') >= limit) return null;
 
   try {
@@ -475,26 +480,143 @@ async function browserMarkdown(env, url) {
           'content-type': 'application/json',
           authorization: 'Bearer ' + token,
         },
-        body: JSON.stringify({
-          url,
-          // Erst rendern lassen, dann lesen. Ohne Wartezeit ist die Liste leer.
-          gotoOptions: { waitUntil: 'networkidle0', timeout: 35000 },
-          rejectResourceTypes: ['image', 'media', 'font'],
-        }),
+        // Ohne Zusatzoptionen: "networkidle0" wird auf Kettenseiten nie erreicht,
+        // die Anfrage lief dadurch in den Zeitueberlauf.
+        body: JSON.stringify({ url }),
       }
     );
 
     await usageAdd(env, 'browser', 1);
-    if (!res.ok) return null;
+
+    if (res.status === 429 && !schonGewartet) {
+      // Cloudflare begrenzt die Abrufe pro Minute. Einmal warten, dann erneut.
+      letzterBrowserfehler = 'Ratenbegrenzung, warte 25 Sekunden';
+      await warte(25000);
+      return browserMarkdown(env, url, true);
+    }
+
+    if (!res.ok) {
+      letzterBrowserfehler = 'HTTP ' + res.status + ': ' + (await res.text()).slice(0, 300);
+      return null;
+    }
 
     const daten = await res.json();
-    const text = typeof daten.result === 'string' ? daten.result : daten.result?.markdown;
-    if (!text || text.length < 800) return null;
+    const text = typeof daten.result === 'string'
+      ? daten.result
+      : (daten.result?.markdown || daten.result?.content || null);
 
-    return { url, text: text.slice(0, 16000), quelle: 'browser' };
-  } catch {
+    if (!text) {
+      letzterBrowserfehler = 'Keine Nutzdaten: ' + JSON.stringify(daten).slice(0, 300);
+      return null;
+    }
+    if (text.length < 800) {
+      letzterBrowserfehler = 'Nur ' + text.length + ' Zeichen: ' + text.slice(0, 200);
+      return null;
+    }
+
+    letzterBrowserfehler = null;
+    return { url, text: text.slice(0, 20000), quelle: 'browser' };
+  } catch (err) {
+    letzterBrowserfehler = String(err.message || err);
     return null;
   }
+}
+
+// Marriott stellt die Zimmerkategorien als offene Abfrage bereit. Die Kennung
+// des Hauses steckt in der Adresse: .../hotels/vlcva-ac-hotel-valencia/
+function marshaCode(website) {
+  const treffer = (website || '').match(/\/hotels\/([a-z0-9]{5})-/i);
+  return treffer ? treffer[1].toUpperCase() : null;
+}
+
+async function marriottRoomCards(hotel) {
+  const marsha = marshaCode(hotel.website);
+  if (!marsha) return null;
+
+  const url = 'https://www.marriott.com/services/marriott-hws/roomCards/'
+    + '?marsha=' + marsha + '&locale=de-DE&acrsEnabled=false';
+
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
+    headers: {
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        + '(KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+      accept: 'application/json',
+      referer: (hotel.website || '').replace(/\/+$/, '') + '/rooms/',
+    },
+  });
+  if (!res.ok) return null;
+
+  const daten = await res.json().catch(() => null);
+  const kanten = daten?.data?.property?.roomTypes?.edges;
+  if (!Array.isArray(kanten) || !kanten.length) return null;
+
+  const zimmer = [];
+  for (const kante of kanten) {
+    const k = kante?.node;
+    if (!k?.name) continue;
+
+    // Groesse und Bett stehen in der Langbeschreibung und in den Merkmalen.
+    const lang = k.longDescription || '';
+    const groesse = Number((lang.match(/(\d+)\s*m²/) || [])[1]) || null;
+    const bett = (lang.match(/(\d+\s*(?:Kingsize|Queensize|Twinsize|Einzel|Doppel)[^,]*)/i) || [])[1]
+      || (k.description || '').split(',').slice(1).join(',').trim() || null;
+
+    const istSuite = /suite/i.test(k.name) || /suite/i.test(k.description || '');
+
+    zimmer.push({
+      name: k.name.trim(),
+      code: k.roomTypeCode || null,
+      description: k.description || null,
+      type: istSuite ? 'suite' : 'room',
+      size_sqm: groesse,
+      bed_type: bett,
+      max_occupancy: k.maxOccupancy || null,
+      source: 'official_chain_api',
+      source_url: url,
+      confidence: 'high',
+    });
+  }
+
+  return zimmer.length ? { marsha, url, zimmer } : null;
+}
+
+// Sammelt mehrere offizielle Unterseiten zu einem gemeinsamen Text. Bei Marriott
+// stehen die Kategorienamen etwa in den Bildbeschreibungen der Galerie.
+async function officialCorpus(env, hotel, kette) {
+  // Die Galerie zuerst: dort stehen die Kategorienamen in den Bildbeschreibungen.
+  const seiten = kette ? ['photos', 'rooms', 'overview'] : ['rooms', 'zimmer'];
+
+  const teile = [];
+  const quellen = [];
+
+  for (const name of seiten) {
+    const url = subUrl(hotel.website, name);
+    if (!url) continue;
+
+    // Zwischen den Abrufen Luft lassen, sonst greift die Ratenbegrenzung.
+    if (kette && teile.length) await warte(22000);
+
+    const seite = kette
+      ? await browserMarkdown(env, url)
+      : await roomPageText(url).catch(() => null);
+
+    if (!seite?.text) continue;
+    teile.push('### Seite: ' + url + '\n' + seite.text.slice(0, 12000));
+    quellen.push(url);
+
+    // Zwei Seiten reichen meist. Die dritte nur, wenn bisher wenig zusammenkam.
+    if (teile.length >= 2 && teile.join('').length > 14000) break;
+    if (teile.length >= 3) break;
+  }
+
+  if (!teile.length) return null;
+  return {
+    url: quellen[0],
+    quellen,
+    quelle: kette ? 'browser' : 'fetch',
+    text: teile.join('\n\n').slice(0, 30000),
+  };
 }
 
 // Stufe eins: die Zimmerseite des Hauses direkt lesen. Viele Kettenseiten
@@ -553,18 +675,29 @@ const PROGRAMM_DOMAIN = {
   'Scandic Friends': 'scandichotels.com',
 };
 
-// Buchungsportale und Metasuchen taugen zur Identifikation eines Hauses,
-// aber niemals als Quelle fuer Zimmerkategorien. Ihre Namen sind erfunden.
+// Buchungsportale liefern eigene Zimmernamen. Sie sind der letzte Rueckfall,
+// wenn die offiziellen Seiten nichts hergeben – und werden dann als vorlaeufig
+// gekennzeichnet, damit die Runde sie korrigiert. Metasuchen bleiben tabu.
+const PORTALE = ['booking.com', 'hotels.com', 'expedia.com', 'expedia.de', 'agoda.com'];
+const istPortal = (url) => {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    return PORTALE.some((d) => host === d || host.endsWith('.' + d));
+  } catch {
+    return false;
+  }
+};
 
-// Baut aus der Hotelseite die Zimmerseite. Verhindert /rooms/rooms/.
-function roomsUrl(website) {
+// Schneidet bekannte Unterseiten ab und liefert die Basisadresse des Hauses.
+function hotelBaseUrl(website) {
   if (!website) return null;
   try {
     const url = new URL(website);
     const teile = url.pathname.split('/').filter(Boolean);
-    while (['rooms', 'zimmer', 'suites'].includes(teile[teile.length - 1])) teile.pop();
-    teile.push('rooms');
-    url.pathname = '/' + teile.join('/') + '/';
+    const unterseiten = ['rooms', 'zimmer', 'suites', 'photos', 'overview', 'gallery',
+      'dining', 'experiences', 'events'];
+    while (teile.length && unterseiten.includes(teile[teile.length - 1])) teile.pop();
+    url.pathname = teile.length ? '/' + teile.join('/') + '/' : '/';
     url.search = '';
     url.hash = '';
     return url.toString();
@@ -572,6 +705,18 @@ function roomsUrl(website) {
     return null;
   }
 }
+
+// Baut aus der Hotelseite eine Unterseite. Verhindert /rooms/rooms/.
+function subUrl(website, unterseite) {
+  const basis = hotelBaseUrl(website);
+  if (!basis) return null;
+  // Kettenseiten in der englischen Fassung lesen: dort stehen die Namen so,
+  // wie das Programm sie fuehrt. Uebersetzungen weichen ab.
+  const englisch = basis.replace(/\/(de|es|fr|it|nl|pt-br|pl-pl)\/hotels\//, '/en-us/hotels/');
+  return englisch + unterseite + '/';
+}
+
+const roomsUrl = (website) => subUrl(website, 'rooms');
 
 // Die eigene Domain eines unabhaengigen Hauses ist ebenfalls offiziell.
 function eigeneDomain(hotel) {
@@ -594,10 +739,66 @@ function chainDomain(hotel) {
   return PROGRAMM_DOMAIN[hotel.program] || null;
 }
 
+const VERBINDLICH_ZUSATZ = (seite) => `
+
+Die folgende Liste stammt unmittelbar vom Betreiber und ist VERBINDLICH.
+
+- Uebernimm genau diese Kategorien, wortgetreu, keine weglassen, keine ergaenzen.
+- Suche NICHT im Netz nach weiteren Kategorien.
+- Setze bei jeder Kategorie "source": "official_chain_api", "confidence": "high"
+  und als "source_url" ${seite.url}.
+- Deine einzige Aufgabe bei den Zimmern ist die REIHENFOLGE: sortiere sie von der
+  einfachsten zur hochwertigsten Kategorie. Nutze dafuer Groesse, Bettentyp,
+  Belegung und die Bezeichnung. Suiten stehen immer ueber gewoehnlichen Zimmern.
+- Setze "rank_reliable": true.
+
+${seite.text}`;
+
 const SEITEN_ZUSATZ = (seite) => `
 
 Der Inhalt der offiziellen Zimmerseite liegt dir hier vor. Nimm die Kategorienamen
 AUSSCHLIESSLICH aus diesem Text und setze als source_url ${seite.url}.
+
+Der Text kann mehrere Unterseiten desselben Hauses enthalten, jeweils mit
+"### Seite:" eingeleitet. Werte sie GEMEINSAM aus und fuehre die Kategorien zusammen.
+
+Wichtig zur Fundstelle: Kettenseiten laden ihre Zimmerliste oft erst bei einer
+Verfuegbarkeitsabfrage. Die /rooms/-Seite nennt dann nur eine Anzahl. Die Namen
+stehen aber in den Bildbeschreibungen der Galerie. Beispiel:
+![Standard Plus King Guest Room](...) ergibt die Kategorie "Standard Plus King Guest Room".
+Durchsuche den Text ausdruecklich nach solchen Bildbeschreibungen.
+
+WORTGETREU UEBERNEHMEN – das ist die wichtigste Regel:
+Schreibe den Namen exakt so ab, wie er im Text steht. Kuerze nicht, fasse nicht
+zusammen, uebersetze nicht und vereinheitliche nichts.
+- "Standard Twin/Twin Guest Room" bleibt "Standard Twin/Twin Guest Room".
+  NICHT "Standard Twin Room" und nicht "Standard Twin".
+- "Standard Plus King Guest Room" bleibt vollstaendig stehen.
+  NICHT "Standard Plus King".
+Der Zusatz "Guest Room" gehoert zum Namen und wird nie weggelassen.
+
+Was als Kategorie zaehlt:
+- Vollstaendige Bezeichnungen einer Zimmerart, etwa "Standard Twin/Twin Guest Room",
+  "Family Guest Room", "Junior Suite", "Standard Plus King Guest Room".
+
+Was NICHT als Kategorie zaehlt:
+- Bildunterschriften zu Ausschnitten eines Zimmers: "Guest Room Bathroom",
+  "Junior Suite - Living Area", "Sleeping Area", "Guest Room View", "Balcony".
+- Allgemeines wie "Hotel Room", "Rooms", "Accommodations".
+- Namen aus dem Fliesstext oder aus Werbeabsaetzen. Nur was als Bezeichnung eines
+  Bildes oder als Ueberschrift einer Zimmerart dasteht, zaehlt.
+
+Beschreibt eine Bildunterschrift einen Ausschnitt, steht der Kategoriename davor und
+der Ausschnitt dahinter, getrennt durch Bindestrich: "Junior Suite King - Sleeping Area"
+ergibt "Junior Suite King". Schneide nur diesen Ausschnittteil ab, sonst nichts.
+Erscheint dieselbe Kategorie mehrfach, nimm sie genau einmal auf.
+Erfinde keine Varianten: Wenn nur "Family Twin/Twin Guest Room" dasteht, gibt es kein
+zusaetzliches "Family King".
+
+Plausibilitaetspruefung: Nennt eine der Seiten eine Anzahl, etwa "You can choose from
+6 types of rooms", vergleiche sie mit deiner Liste. Stimmen die Zahlen ueberein, setze
+"confidence": "high". Weichen sie stark ab, suche weiter, bevor du antwortest.
+
 Suche nur dann zusaetzlich im Netz, wenn der Text keine Zimmerkategorien enthaelt.
 
 --- Beginn der Seite ---
@@ -621,8 +822,10 @@ Vorgehen:
    mit einer Einschraenkung auf die Domain der Kette, etwa:
    site:marriott.com "AC Hotel Valencia" rooms
    Auch die Ausschnitte aus den Suchergebnissen offizieller Seiten sind zulaessig.
-4. Findest du auf offiziellen Seiten nichts, gib {"found": true, "rooms": []} zurueck.
-   Uebernimm NIEMALS Kategorien von Buchungsportalen, Metasuchen oder Sammelseiten.
+4. Findest du auf offiziellen Seiten nichts, nimm als letzten Rueckfall die grossen
+   Buchungsportale booking.com, hotels.com, expedia oder agoda und setze bei diesen
+   Kategorien "confidence": "medium". Ihre Namen werden als vorlaeufig gekennzeichnet.
+   Metasuchen, Sammelseiten, PDFs und Reiseblogs bleiben ausgeschlossen.
 
 Zulaessig sind ausschliesslich:
 - die offizielle Seite der Kette, etwa marriott.com, hilton.com, ihg.com, hyatt.com,
@@ -630,8 +833,10 @@ Zulaessig sind ausschliesslich:
 - die eigene Seite eines unabhaengigen Hauses
 - Ausschnitte aus Suchergebnissen, die von einer dieser Seiten stammen
 
+Nur als letzter Rueckfall, wenn offizielle Seiten nichts hergeben:
+- Buchungsportale booking.com, hotels.com, expedia, agoda
+
 Unzulaessig – unter keinen Umstaenden verwenden:
-- Buchungsportale wie booking.com, hotels.com, expedia, agoda
 - Metasuchen wie kayak, trivago, momondo, skyscanner
 - Bewertungsseiten wie tripadvisor
 - Stadt- und Sammelportale wie valencia-hotels.org
@@ -735,13 +940,14 @@ async function enrichHotel(env, hotel, seite, nurDomain) {
     name: 'web_search',
     max_uses: nurDomain ? 4 : 5,
   };
-  // Zimmerkategorien kommen ausschliesslich von der Kette oder der Hotelseite.
-  const offiziell = [nurDomain, chainDomain(hotel), eigeneDomain(hotel)].filter(Boolean);
-  if (offiziell.length) werkzeug.allowed_domains = [...new Set(offiziell)];
+  // Durchgang eins: nur offizielle Seiten. Durchgang zwei: dazu die Portale.
+  const offiziell = [chainDomain(hotel), eigeneDomain(hotel)].filter(Boolean);
+  if (nurDomain) werkzeug.allowed_domains = [nurDomain];
+  else if (offiziell.length) werkzeug.allowed_domains = [...new Set([...offiziell, ...PORTALE])];
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    signal: AbortSignal.timeout(70000),   // haengt der Aufruf, brechen wir sauber ab
+    signal: AbortSignal.timeout(90000),   // haengt der Aufruf, brechen wir sauber ab
     headers: {
       'content-type': 'application/json',
       'x-api-key': key,
@@ -752,7 +958,8 @@ async function enrichHotel(env, hotel, seite, nurDomain) {
       max_tokens: 8000,
       messages: [{
         role: 'user',
-        content: ENRICH_PROMPT(hotel) + (seite ? SEITEN_ZUSATZ(seite) : ''),
+        content: ENRICH_PROMPT(hotel)
+          + (seite ? (seite.verbindlich ? VERBINDLICH_ZUSATZ(seite) : SEITEN_ZUSATZ(seite)) : ''),
       }],
       tools: [werkzeug],
     }),
@@ -865,14 +1072,26 @@ async function runEnrichment(env, hotelId) {
     const ziel = roomsUrl(hotel.website);
     const kette = Boolean(chainDomain(hotel));
 
-    let seite = null;
-    if (kette) {
-      seite = await browserMarkdown(env, ziel) || await browserMarkdown(env, hotel.website);
+    // Marriott zuerst: die offene Abfrage liefert die verbindlichen Namen.
+    let karten = null;
+    if ((chainDomain(hotel) || '').includes('marriott.com')) {
+      karten = await marriottRoomCards(hotel).catch(() => null);
     }
-    if (!seite) seite = await roomPageText(hotel.website).catch(() => null);
-    if (!seite && !kette) {
-      seite = await browserMarkdown(env, ziel) || await browserMarkdown(env, hotel.website);
-    }
+
+    let seite = karten ? {
+      url: karten.url,
+      quellen: [karten.url],
+      quelle: 'marriott-api',
+      verbindlich: true,
+      text: 'Verbindliche Zimmerkategorien des Hauses, direkt vom Betreiber:\n'
+        + karten.zimmer.map((z, i) =>
+            (i + 1) + '. ' + z.name + ' | ' + (z.description || '')
+            + ' | Code ' + z.code + ' | ' + (z.size_sqm ? z.size_sqm + ' m²' : 'Größe unbekannt')
+            + ' | bis ' + (z.max_occupancy || '?') + ' Personen'
+          ).join('\n'),
+    } : await officialCorpus(env, hotel, kette);
+    if (!seite && kette) seite = await browserMarkdown(env, hotel.website);
+    if (!seite && !kette) seite = await roomPageText(hotel.website).catch(() => null);
 
     // Durchgang eins: nur die Domain der Kette. Erst wenn das zu wenig bringt,
     // wird offen gesucht – dann eben mit Namen von Buchungsportalen.
@@ -917,29 +1136,36 @@ async function runEnrichment(env, hotelId) {
 
     // Zugelassen sind nur die Kette und wenige grosse Portale. Alles andere –
     // Metasuchen, Stadtportale, PDFs – liefert erfundene oder veraltete Namen.
-    // Nur die Kette und die Seite des Hauses selbst. Keine Portale, keine Metasuchen.
-    const erlaubteQuellen = [
+    const offizielleQuellen = [
       chainDomain(hotel),
       eigeneDomain(hotel),
       ...Object.values(PROGRAMM_DOMAIN),
     ].filter(Boolean);
+    // Die offene Abfrage des Betreibers liegt auf derselben Domain, passt also.
 
-    const quelleOk = (url) => {
-      if (!url) return false;                    // ohne Beleg zaehlt es nicht
-      if (/\.pdf($|\?)/i.test(url)) return false;
+    const istOffiziell = (url) => {
       try {
         const host = new URL(url).hostname.replace(/^www\./, '');
-        return erlaubteQuellen.some((d) => host === d || host.endsWith('.' + d));
+        return offizielleQuellen.some((d) => host === d || host.endsWith('.' + d));
       } catch {
         return false;
       }
     };
 
-    const brauchbar = rooms.filter((r) => quelleOk(r.source_url) && r.confidence !== 'low');
+    // Offizielle Namen sind verbindlich. Portalnamen gelten als vorlaeufig.
+    // Metasuchen, Sammelseiten und PDFs bleiben draussen.
+    const brauchbar = rooms
+      .filter((r) => r.source_url && !/\.pdf($|\?)/i.test(r.source_url) && r.confidence !== 'low')
+      .filter((r) => istOffiziell(r.source_url) || istPortal(r.source_url))
+      .map((r) => ({ ...r, source: istOffiziell(r.source_url) ? r.source : 'portal_provisional' }));
+
+    // Gibt es offizielle Namen, verdraengen sie die vorlaeufigen komplett.
+    const offizielle = brauchbar.filter((r) => r.source !== 'portal_provisional');
+    const gewaehlt = offizielle.length >= 3 ? offizielle : brauchbar;
 
     // Eine oder zwei Kategorien taugen nicht: daraus laesst sich keine Leiter bilden.
     // Lieber keine Kategorie als eine erfundene.
-    if (brauchbar.length < 3) {
+    if (gewaehlt.length < 3) {
       await env.DB.prepare(
         "UPDATE hotels SET enrich_status = 'incomplete', enrich_error = ?, enriched_at = ? WHERE id = ?"
       ).bind(
@@ -953,13 +1179,14 @@ async function runEnrichment(env, hotelId) {
     // Das Vorschaubild der Hotelseite holen wir einmal und behalten es.
     const eigenesBild = await siteImage(result.website || hotel.website);
 
-    const inserts = brauchbar.slice(0, 30).map((r, i) =>
+    const inserts = gewaehlt.slice(0, 30).map((r, i) =>
       env.DB.prepare(
         `INSERT INTO room_types
            (hotel_id, name, rank, confirmed, source, source_url, type, size_sqm,
-            bed_type, max_occupancy, description, researched_at, created_at)
-         VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            bed_type, max_occupancy, description, researched_at, created_at, provisional)
+         VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(hotel_id, name) DO UPDATE SET
+           provisional   = CASE WHEN room_types.confirmed = 1 THEN 0 ELSE excluded.provisional END,
            rank          = CASE WHEN room_types.confirmed = 1 THEN room_types.rank ELSE excluded.rank END,
            type          = COALESCE(excluded.type, room_types.type),
            size_sqm      = COALESCE(excluded.size_sqm, room_types.size_sqm),
@@ -975,9 +1202,16 @@ async function runEnrichment(env, hotelId) {
         optionalNumber(r.size_sqm),
         r.bed_type || null,
         optionalNumber(r.max_occupancy),
-        r.description || null, stamp, stamp
+        r.description || null, stamp, stamp, vorlaeufig ? 1 : 0
       )
     );
+
+    // Offizielle Namen ersetzen vorlaeufige, nie umgekehrt.
+    if (!vorlaeufig) {
+      inserts.push(env.DB.prepare(
+        'DELETE FROM room_types WHERE hotel_id = ? AND provisional = 1 AND confirmed = 0'
+      ).bind(hotelId));
+    }
 
     inserts.push(
       env.DB.prepare(
@@ -1718,6 +1952,109 @@ export async function onRequest(context) {
         });
       }
 
+      // Prueft, welche oeffentliche Buchungsadresse die Zimmerkarten liefert.
+      // Nur ein Werkzeug fuer die Entwicklung, nichts wird gespeichert.
+      if (sub === '/probe' && method === 'POST') {
+        const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
+        if (!hotel) return fail('Hotel nicht gefunden', 404);
+
+        const basis = hotelBaseUrl(hotel.website);
+        const code = (basis || '').match(/hotels\/([a-z0-9]{5})-/i)?.[1] || null;
+
+        const tag = (plus) => {
+          const d = new Date(Date.now() + plus * 86400000);
+          return d.toISOString().slice(0, 10);
+        };
+        const an = tag(30);
+        const ab = tag(31);
+
+        const suchparameter = '?arrivalDate=' + an + '&departureDate=' + ab
+          + '&numAdults=1&roomCount=1&clusterCode=none';
+
+        const kandidaten = [
+          { name: 'rooms mit Datum', url: basis + 'rooms/' + suchparameter },
+          { name: 'overview mit Datum', url: basis + 'overview/' + suchparameter },
+          code ? {
+            name: 'Tarifliste (Altweg)',
+            url: 'https://www.marriott.com/reservation/rateListMenu.mi?propertyCode=' + code
+              + '&fromDate=' + an + '&toDate=' + ab + '&numberOfAdults=1',
+          } : null,
+          code ? {
+            name: 'Verfuegbarkeitssuche',
+            url: 'https://www.marriott.com/reservation/availabilitySearch.mi?propertyCode=' + code,
+          } : null,
+        ].filter(Boolean);
+
+        const muster = /(guest room|zimmer mit|standardzimmer|deluxe|suite|king|queen|twin)/i;
+        const berichte = [];
+
+        for (const k of kandidaten) {
+          if (berichte.length) await warte(22000);   // Ratenbegrenzung
+          const seite = await browserMarkdown(env, k.url);
+
+          const zeilen = seite?.text
+            ? seite.text.split('\n').filter((z) => muster.test(z) && z.length < 160).slice(0, 25)
+            : [];
+
+          berichte.push({
+            name: k.name,
+            url: k.url,
+            gelesen: Boolean(seite),
+            laenge: seite?.text?.length || 0,
+            fehler: seite ? null : letzterBrowserfehler,
+            treffer: zeilen,
+          });
+        }
+
+        return json({ hotel: hotel.name, property_code: code, basis, versuche: berichte });
+      }
+
+      // Diagnose: zeigt, welche Seite gelesen wurde und was das Modell antwortet.
+      if (sub === '/enrich' && method === 'POST' && url.searchParams.get('debug') === '1') {
+        const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
+        if (!hotel) return fail('Hotel nicht gefunden', 404);
+
+        const ziel = roomsUrl(hotel.website);
+        const kette = chainDomain(hotel);
+
+        let karten = null;
+        if ((kette || '').includes('marriott.com')) {
+          karten = await marriottRoomCards(hotel).catch(() => null);
+        }
+        const seite = karten ? {
+          url: karten.url,
+          quellen: [karten.url],
+          quelle: 'marriott-api',
+          verbindlich: true,
+          text: karten.zimmer.map((z) => z.name + ' | ' + z.description + ' | ' + z.code).join('\n'),
+        } : await officialCorpus(env, hotel, kette);
+
+        const bericht = {
+          hotel: hotel.name,
+          webseite: hotel.website,
+          zimmerseite: ziel,
+          kette,
+          seite_gelesen: seite?.quellen || null,
+          seite_quelle: seite?.quelle || (seite ? 'fetch' : null),
+          seite_laenge: seite?.text?.length || 0,
+          seite_anfang: seite?.text?.slice(0, 800) || null,
+          browser_fehler: letzterBrowserfehler,
+        };
+
+        try {
+          const result = await enrichHotel(env, hotel, seite, kette);
+          return json({
+            ...bericht,
+            gefunden: result.found,
+            anzahl: (result.rooms || []).length,
+            namen: (result.rooms || []).map((r) => r.name + ' « ' + (r.source_url || 'ohne Quelle')),
+            diagnose: result._diagnose,
+          });
+        } catch (err) {
+          return json({ ...bericht, fehler: String(err.message || err), diagnose: err.diagnose || null });
+        }
+      }
+
       if (sub === '/enrich' && method === 'POST') {
         // Eine erneute Recherche ist nur einmal im Monat je Hotel erlaubt.
         const stand = await env.DB.prepare(
@@ -1767,7 +2104,7 @@ export async function onRequest(context) {
           if (von && nach && von !== nach) {
             await env.DB.batch([
               env.DB.prepare(
-                'UPDATE room_types SET name = ?, confirmed = 1, source = ? WHERE hotel_id = ? AND name = ?'
+                'UPDATE room_types SET name = ?, confirmed = 1, provisional = 0, source = ? WHERE hotel_id = ? AND name = ?'
               ).bind(nach, 'user', hotelId, von),
               env.DB.prepare(
                 'UPDATE stays SET booked_room = ? WHERE hotel_id = ? AND booked_room = ?'
@@ -2208,7 +2545,7 @@ export async function onRequest(context) {
         google_monat: google,
         google_limit: Number(env.GOOGLE_MONTHLY_LIMIT || 800),
         browser_monat: browser,
-        browser_limit: Number(env.BROWSER_MONTHLY_LIMIT || 300),
+        browser_limit: Number(env.BROWSER_MONTHLY_LIMIT || 600),
       });
     }
 

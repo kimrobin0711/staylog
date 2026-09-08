@@ -1283,3 +1283,15 @@ details.group-card[open] > summary { margin-bottom: 4px; }
   background: var(--gold-wash); border: 1px solid var(--gold-line);
   border-radius: var(--r-sm); padding: 9px 12px; margin-top: 12px;
 }
+
+.rooms-provisional { color: var(--gold-ink); font-weight: 600; }
+.room-row .provisional {
+  margin-left: 8px; font-size: .7rem; letter-spacing: .04em;
+  padding: 2px 7px; border-radius: 999px;
+  background: var(--gold-wash); color: var(--gold-ink); border: 1px solid var(--gold-line);
+}
+
+.room-type.provisional {
+  margin-left: 8px; background: var(--gold-wash); color: var(--gold-ink);
+  border-color: var(--gold-line);
+}

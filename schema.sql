@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS room_types (
   max_occupancy INTEGER,
   description   TEXT,
   researched_at TEXT,
-  aliases       TEXT,                              -- JSON-Array: andere Schreibweisen
+  aliases       TEXT,
+  provisional   INTEGER NOT NULL DEFAULT 0,          -- 1 = Portalname, ungeprueft                              -- JSON-Array: andere Schreibweisen
   created_at    TEXT NOT NULL
 );
 

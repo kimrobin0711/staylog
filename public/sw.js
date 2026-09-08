@@ -1,5 +1,5 @@
 // Die Version steht in version.json und wird beim Packen gesetzt.
-const VERSION = '20260908-191612';
+const VERSION = '20260908-192238';
 const SHELL = 'staylog-' + VERSION;
 const FILES = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest'];
 

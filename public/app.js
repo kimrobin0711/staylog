@@ -2244,8 +2244,8 @@ function renderRooms() {
     } else {
       texts.appendChild(el('div', 'rooms-step', waitingLine(seconds)));
       texts.appendChild(el('div', 'rooms-wait-note',
-        seconds > 45
-          ? 'Dauert bei diesem Haus länger als üblich (' + seconds + ' Sekunden). Du kannst jederzeit selbst eintragen.'
+        seconds > 90
+          ? 'Dieses Haus macht es uns schwer (' + seconds + ' Sekunden). Füll ruhig den Rest aus.'
           : 'Das kann einen Moment dauern. Du kannst den Rest schon ausfüllen.'));
     }
     wait.appendChild(texts);

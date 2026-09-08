@@ -639,7 +639,7 @@ async function marriottRoomCards(hotel) {
 
 // Holt das rohe HTML einer Seite ueber den Browser. Nur so kommen wir an die
 // schema.org-Bloecke – die Markdown-Fassung wirft sie weg.
-async function browserContent(env, url) {
+async function browserContent(env, url, schonGewartet = false) {
   const konto = (env.CF_ACCOUNT_ID || '').trim();
   const token = (env.CF_BROWSER_TOKEN || '').trim();
   if (!konto || !token || !url) return null;
@@ -658,6 +658,11 @@ async function browserContent(env, url) {
       }
     );
     await usageAdd(env, 'browser', 1);
+
+    if (res.status === 429 && !schonGewartet) {
+      await warte(20000);
+      return browserContent(env, url, true);
+    }
     if (!res.ok) {
       letzterBrowserfehler = 'HTTP ' + res.status;
       return null;
@@ -673,40 +678,31 @@ async function browserContent(env, url) {
 
 // Versucht der Reihe nach, die Kategorien aus schema.org-Bloecken zu lesen.
 async function schemaRooms(env, hotel) {
-  const kandidaten = [
-    subUrl(hotel.website, 'rooms'),
-    hotelBaseUrl(hotel.website),
-    hotel.website,
-  ].filter(Boolean);
+  const ziel = subUrl(hotel.website, 'rooms') || hotelBaseUrl(hotel.website);
+  if (!ziel) return null;
 
-  const gesehen = new Set();
-  for (const url of kandidaten) {
-    if (gesehen.has(url)) continue;
-    gesehen.add(url);
+  // Der einfache Abruf ist in Sekunden erledigt und kostet nichts.
+  try {
+    const res = await fetch(ziel, {
+      signal: AbortSignal.timeout(10000),
+      headers: {
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+          + '(KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+        accept: 'text/html,application/xhtml+xml',
+        'accept-language': 'de-DE,de;q=0.9,en;q=0.8',
+      },
+    });
+    if (res.ok) {
+      const zimmer = hotelRoomsFromSchema(await res.text(), ziel);
+      if (zimmer) return { url: ziel, zimmer };
+    }
+  } catch { /* dann der Browser */ }
 
-    // Erst der einfache Weg, dann der Browser.
-    let html = null;
-    try {
-      const res = await fetch(url, {
-        signal: AbortSignal.timeout(12000),
-        headers: {
-          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-            + '(KHTML, like Gecko) Chrome/125.0 Safari/537.36',
-          accept: 'text/html,application/xhtml+xml',
-          'accept-language': 'de-DE,de;q=0.9,en;q=0.8',
-        },
-      });
-      if (res.ok) html = await res.text();
-    } catch { /* dann der Browser */ }
-
-    let zimmer = hotelRoomsFromSchema(html, url);
-    if (zimmer) return { url, zimmer };
-
-    html = await browserContent(env, url);
-    zimmer = hotelRoomsFromSchema(html, url);
-    if (zimmer) return { url, zimmer };
-  }
-  return null;
+  // Sonst genau EIN Browserabruf. Mehr lohnt nicht: klappt es dort nicht,
+  // liefert die Seite die Bloecke schlicht nicht.
+  const html = await browserContent(env, ziel);
+  const zimmer = hotelRoomsFromSchema(html, ziel);
+  return zimmer ? { url: ziel, zimmer } : null;
 }
 
 // Sammelt mehrere offizielle Unterseiten zu einem gemeinsamen Text. Bei Marriott
@@ -835,13 +831,27 @@ function hotelBaseUrl(website) {
 }
 
 // Baut aus der Hotelseite eine Unterseite. Verhindert /rooms/rooms/.
+// Jede Kette schreibt die Sprache anders in die Adresse. Marriott nutzt
+// /en-us/, Hilton /en/ oder /de/, Radisson /de-de/. Blind umschreiben fuehrt
+// ins Leere – deshalb nur dort, wo wir das Muster kennen.
+const SPRACHMUSTER = [
+  { host: 'marriott.com',       suche: /\/[a-z]{2}(-[a-z]{2})?\/hotels\//, ersatz: '/en-us/hotels/' },
+  { host: 'hilton.com',         suche: /\/[a-z]{2}(-[a-z]{2})?\/hotels\//, ersatz: '/de/hotels/' },
+  { host: 'radissonhotels.com', suche: /\/[a-z]{2}-[a-z]{2}\/hotels\//,    ersatz: '/de-de/hotels/' },
+];
+
 function subUrl(website, unterseite) {
   const basis = hotelBaseUrl(website);
   if (!basis) return null;
-  // Kettenseiten in der englischen Fassung lesen: dort stehen die Namen so,
-  // wie das Programm sie fuehrt. Uebersetzungen weichen ab.
-  const englisch = basis.replace(/\/(de|es|fr|it|nl|pt-br|pl-pl)\/hotels\//, '/en-us/hotels/');
-  return englisch + unterseite + '/';
+
+  let adresse = basis;
+  for (const muster of SPRACHMUSTER) {
+    if (adresse.includes(muster.host) && muster.suche.test(adresse)) {
+      adresse = adresse.replace(muster.suche, muster.ersatz);
+      break;
+    }
+  }
+  return adresse + unterseite + '/';
 }
 
 const roomsUrl = (website) => subUrl(website, 'rooms');
@@ -1220,6 +1230,7 @@ async function runEnrichment(env, hotelId) {
       if (schema) karten = { marsha: null, url: schema.url, zimmer: schema.zimmer };
     }
 
+    // Liegt eine verbindliche Liste vor, sparen wir uns Galerie und Suche.
     let seite = karten ? {
       url: karten.url,
       quellen: [karten.url],

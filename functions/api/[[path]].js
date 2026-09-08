@@ -870,15 +870,24 @@ function chainDomain(hotel) {
 const VERBINDLICH_ZUSATZ = (seite) => `
 
 Die folgende Liste stammt unmittelbar vom Betreiber und ist VERBINDLICH.
+Groesse, Beschreibung und Bett kennen wir bereits – du sollst sie NICHT wiederholen.
 
-- Uebernimm genau diese Kategorien, wortgetreu, keine weglassen, keine ergaenzen.
+Gib das Feld "rooms" als LEERES Array zurueck und stattdessen ein Feld
+"rooms_order" mit den Namen in der richtigen Reihenfolge:
+
+  "rooms": [],
+  "rooms_order": ["einfachste Kategorie", "...", "hochwertigste Kategorie"],
+  "rank_reliable": true
+
+Regeln dazu:
+- Nimm jeden Namen genau einmal auf, wortgetreu wie unten geschrieben.
+- Lass keinen weg und ergaenze keinen. Die Anzahl muss genau uebereinstimmen.
+- Sortiere von der einfachsten zur hochwertigsten Kategorie. Nutze Groesse,
+  Bettentyp, Belegung und die Bezeichnung. Suiten stehen ueber gewoehnlichen
+  Zimmern, Praesidenten- und Penthouse-Suiten ganz oben.
 - Suche NICHT im Netz nach weiteren Kategorien.
-- Setze bei jeder Kategorie "source": "official_chain_api", "confidence": "high"
-  und als "source_url" ${seite.url}.
-- Deine einzige Aufgabe bei den Zimmern ist die REIHENFOLGE: sortiere sie von der
-  einfachsten zur hochwertigsten Kategorie. Nutze dafuer Groesse, Bettentyp,
-  Belegung und die Bezeichnung. Suiten stehen immer ueber gewoehnlichen Zimmern.
-- Setze "rank_reliable": true.
+
+Die uebrigen Felder zum Hotel fuellst du wie gewohnt aus.
 
 ${seite.text}`;
 
@@ -1242,7 +1251,23 @@ async function runEnrichment(env, hotelId) {
 
     const stamp = now();
 
-    const rooms = Array.isArray(result.rooms) ? result.rooms : [];
+    let rooms = Array.isArray(result.rooms) ? result.rooms : [];
+
+    // Steht eine verbindliche Liste bereit, gilt sie – das Modell liefert nur
+    // die Reihenfolge. So bleibt seine Antwort kurz und kann nicht abbrechen.
+    if (karten?.zimmer?.length) {
+      const reihenfolge = Array.isArray(result.rooms_order) ? result.rooms_order : [];
+      const offen = [...karten.zimmer];
+      const sortiert = [];
+
+      for (const name of reihenfolge) {
+        const i = offen.findIndex((z) => slug(z.name) === slug(String(name)));
+        if (i >= 0) sortiert.push(offen.splice(i, 1)[0]);
+      }
+      sortiert.push(...offen);   // was das Modell vergessen hat, kommt hinten an
+
+      rooms = sortiert.map((z, i) => ({ ...z, rank: i + 1 }));
+    }
 
     // Auch ohne Zimmerliste sind Adresse, Webseite und Beschreibung etwas wert.
     if (!result.found || rooms.length === 0) {   // Haus nicht sicher zugeordnet
@@ -1371,7 +1396,7 @@ async function runEnrichment(env, hotelId) {
         result.address || null,
         result.website || null,
         result.description || null,
-        result.rank_reliable === false ? 0 : 1,
+        (karten?.zimmer?.length || result.rank_reliable !== false) ? 1 : 0,
         // Umbenennung nur uebernehmen, wenn sie plausibel dasselbe Haus meint.
         (result.official_name && result.official_name !== hotel.name
           && nameFitsHotel(hotel.name, result.official_name))

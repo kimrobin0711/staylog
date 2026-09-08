@@ -1163,6 +1163,9 @@ async function runEnrichment(env, hotelId) {
     const offizielle = brauchbar.filter((r) => r.source !== 'portal_provisional');
     const gewaehlt = offizielle.length >= 3 ? offizielle : brauchbar;
 
+    // Merkt sich, ob dieser Lauf nur vorlaeufige Namen hervorgebracht hat.
+    const vorlaeufig = offizielle.length < 3;
+
     // Eine oder zwei Kategorien taugen nicht: daraus laesst sich keine Leiter bilden.
     // Lieber keine Kategorie als eine erfundene.
     if (gewaehlt.length < 3) {

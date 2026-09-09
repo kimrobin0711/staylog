@@ -66,19 +66,18 @@ Sie liefert `hotel.roomTypes` mit den offiziellen deutschen Namen, ohne Datum,
 dazu `roomTypeCategories` mit den Gruppen `guest`, `executive`, `suites` als
 Grobsortierung. Kennung ist der CTYHOCN aus der Adresse (`FRAHITW`).
 
-**Ungeprüft ist nur eins:** ob Akamai diese Abfrage aus Cloudflare heraus
-durchlässt. Vom eigenen Rechner testen mit `.\test-hilton.ps1 FRAHITW`, danach
-über die Diagnose eines Hilton-Hauses — das Feld `hilton_fehler` sagt, woran
-es lag.
+**Aus Cloudflare heraus geht sie nicht.** Akamai antwortet mit
+`HTTP 200, text/html, "Success"` — die Anfrage erreicht den Server nie. Der
+Browserdienst hilft auch nicht, Cloudflare weist ihn laut eigener Dokumentation
+über nicht änderbare Kopfzeilen als Bot aus. Deshalb läuft der Abruf über die
+**Brücke** in `bruecke/`: ein echter Browser auf dem eigenen Rechner, einmal
+angemeldet, dann alle Häuser hintereinander. Siehe `TECHNIK.md`, Abschnitt 8.
 
 **Offen: Radisson.** Dort liegen die Kategorien weder im HTML noch als
 schema.org-Block; die Liste wird ebenfalls per JSON nachgeladen. Die Abfrage
 ist noch nicht mitgeschnitten. Gleicher Weg: Zimmerseite öffnen,
-Entwicklerwerkzeuge, HAR mitschneiden.
-
-Falls Akamai auch die Abfragen blockt, bleiben die zwei bekannten Wege: ein
-Dienst mit Wohnanschluss-Adressen (`SCRAPINGBEE_API_KEY`, Prüfweg ist
-eingebaut) oder ein Skript auf dem eigenen Rechner als Brücke.
+Entwicklerwerkzeuge, HAR mitschneiden. Die Brücke bekommt Radisson dann als
+zweite Kette dazu.
 
 ---
 

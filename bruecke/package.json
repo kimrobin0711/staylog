@@ -1,0 +1,14 @@
+{
+  "name": "staylog-bruecke",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node bruecke.mjs",
+    "trocken": "node bruecke.mjs --trocken",
+    "alle": "node bruecke.mjs --alle"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}

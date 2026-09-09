@@ -881,38 +881,22 @@ function hiltonRoomName(name) {
 }
 
 // Liefert die verbindliche Zimmerliste eines Hilton-Hauses.
-async function hiltonRoomTypes(hotel, ctyhocnVorgabe) {
-  const ctyhocn = ctyhocnVorgabe || ctyhocnCode(hotel.website);
-  if (!ctyhocn) return null;
-  letzterHiltonfehler = null;
-
-  const verweis = hotel.website && /hilton\.com/i.test(hotel.website)
-    ? hotel.website.replace(/\/+$/, '') + '/rooms/'
-    : 'https://www.hilton.com/de/hotels/' + ctyhocn.toLowerCase() + '/rooms/';
-
-  // Erst die schlanke Abfrage, sonst die Fassung der Seite selbst.
-  let antwort = await hiltonAbfrage(ctyhocn, verweis, true).catch((e) => {
-    letzterHiltonfehler = 'kurz: ' + String(e.message || e);
-    return null;
-  });
-  if (!antwort) {
-    antwort = await hiltonAbfrage(ctyhocn, verweis, false).catch((e) => {
-      letzterHiltonfehler = 'voll: ' + String(e.message || e);
-      return null;
-    });
-  }
-  if (!antwort) return null;
+// Wandelt Hiltons Antwort in unsere Zimmerliste. Bewusst getrennt vom Abruf:
+// Die Bruecke auf dem eigenen Rechner schickt dieselbe Antwort herein, und sie
+// soll durch genau diese eine Bereinigung laufen – nicht durch eine zweite.
+function hiltonZimmerAusAntwort(hotelObjekt, quelleUrl) {
+  if (!Array.isArray(hotelObjekt?.roomTypes) || !hotelObjekt.roomTypes.length) return null;
 
   // Aus roomTypeCategories kennen wir die grobe Ordnung: guest, executive, suites.
   const gruppe = new Map();
-  for (const k of antwort.hotel.roomTypeCategories || []) {
+  for (const k of hotelObjekt.roomTypeCategories || []) {
     for (const r of k.roomTypes || []) gruppe.set(r.roomTypeCode, k.category);
   }
 
   const zimmer = [];
   const nachName = new Map();
 
-  for (const r of antwort.hotel.roomTypes) {
+  for (const r of hotelObjekt.roomTypes) {
     if (!r?.roomTypeName) continue;
 
     const { name: sauber, bett } = hiltonRoomName(String(r.roomTypeName));
@@ -929,7 +913,7 @@ async function hiltonRoomTypes(hotel, ctyhocnVorgabe) {
     }
 
     // Die Beschreibung kommt als HTML.
-    const text = String(r.desc || '')
+    const text = String(r.desc || r.customDescription || '')
       .replace(/<[^>]+>/g, ' ')
       .replace(/&nbsp;/g, ' ')
       .replace(/\s+/g, ' ')
@@ -954,7 +938,7 @@ async function hiltonRoomTypes(hotel, ctyhocnVorgabe) {
       max_occupancy: belegung,
       gruppe: kategorie,
       source: 'official_chain_api',
-      source_url: antwort.url,
+      source_url: quelleUrl,
       confidence: 'high',
     };
 
@@ -962,8 +946,52 @@ async function hiltonRoomTypes(hotel, ctyhocnVorgabe) {
     zimmer.push(eintrag);
   }
 
-  return zimmer.length ? { ctyhocn, quelle: 'hilton-api', url: antwort.url, zimmer } : null;
+  if (!zimmer.length) return null;
+
+  // Grobe Leiter aus Hiltons eigener Einteilung: Zimmer, Executive, Suiten.
+  const rang = { guest: 0, executive: 1, suites: 2 };
+  return zimmer
+    .map((z, i) => ({ z, i }))
+    .sort((a, b) => (rang[a.z.gruppe] ?? 0) - (rang[b.z.gruppe] ?? 0) || a.i - b.i)
+    .map((e) => e.z);
 }
+
+async function hiltonRoomTypes(hotel, ctyhocnVorgabe) {
+  const ctyhocn = ctyhocnVorgabe || ctyhocnCode(hotel.website);
+  if (!ctyhocn) return null;
+  letzterHiltonfehler = null;
+
+  const verweis = hiltonZimmerseite(hotel, ctyhocn);
+
+  // Erst die schlanke Abfrage, sonst die Fassung der Seite selbst.
+  let antwort = await hiltonAbfrage(ctyhocn, verweis, true).catch((e) => {
+    letzterHiltonfehler = 'kurz: ' + String(e.message || e);
+    return null;
+  });
+  if (!antwort) {
+    antwort = await hiltonAbfrage(ctyhocn, verweis, false).catch((e) => {
+      letzterHiltonfehler = 'voll: ' + String(e.message || e);
+      return null;
+    });
+  }
+  if (!antwort) return null;
+
+  const zimmer = hiltonZimmerAusAntwort(antwort.hotel, antwort.url);
+  return zimmer ? { ctyhocn, quelle: 'hilton-api', url: antwort.url, zimmer } : null;
+}
+
+// Die Zimmerseite eines Hilton-Hauses – auch dann, wenn in der Datenbank eine
+// fremde Adresse steht. Die Bruecke braucht sie zum Oeffnen im Browser.
+function hiltonZimmerseite(hotel, ctyhocnVorgabe) {
+  const ctyhocn = ctyhocnVorgabe || ctyhocnCode(hotel?.website);
+  if (hotel?.website && /hilton\.com/i.test(hotel.website)) {
+    return subUrl(hotel.website, 'rooms') || hotel.website.replace(/\/+$/, '') + '/rooms/';
+  }
+  return ctyhocn
+    ? 'https://www.hilton.com/de/hotels/' + ctyhocn.toLowerCase() + '/rooms/'
+    : 'https://www.hilton.com/de/';
+}
+
 
 // Faellt die Entscheidung, welche Kette eine offene Abfrage hat, und holt die
 // verbindliche Liste. Beide Aufrufwege – Recherche und Diagnose – nutzen diese
@@ -2408,6 +2436,43 @@ export async function onRequest(context) {
       })));
     }
 
+    // Liste fuer die Bruecke: welche Haeuser einer Kette noch Kategorien
+    // brauchen, samt der Kennung und der Adresse, die zu oeffnen ist.
+    if (path === '/hotels/offen' && method === 'GET') {
+      if (!isAdmin(env, user)) return fail('Nur fuer die Verwaltung', 403);
+
+      const kette = (url.searchParams.get('kette') || 'hilton').toLowerCase();
+      if (kette !== 'hilton') return fail('Unbekannte Kette: ' + kette, 400);
+
+      const alle = (url.searchParams.get('alle') || '') === '1';
+
+      const rows = await env.DB.prepare(
+        `SELECT h.id, h.name, h.city, h.country, h.website, h.program, h.brand, h.chain,
+                (SELECT COUNT(*) FROM room_types r
+                  WHERE r.hotel_id = h.id AND r.source = 'official_chain_api') AS amtlich
+           FROM hotels h ORDER BY h.name`
+      ).all();
+
+      const haeuser = rows.results
+        .filter((h) => {
+          const marken = [h.name, h.brand, h.chain].filter(Boolean).join(' ');
+          return /hilton\.com/i.test(h.website || '')
+            || h.program === 'Hilton Honors'
+            || HILTON_MARKEN.test(marken);
+        })
+        .filter((h) => alle || !h.amtlich)
+        .map((h) => ({
+          id: h.id,
+          name: h.name,
+          city: h.city,
+          ctyhocn: ctyhocnCode(h.website),
+          zimmerseite: hiltonZimmerseite(h),
+          amtlich: h.amtlich,
+        }));
+
+      return json({ kette, anzahl: haeuser.length, haeuser });
+    }
+
     if (path === '/hotels' && method === 'GET') {
       const rows = await env.DB.prepare(
         `SELECT h.*, COUNT(s.id) AS stay_count
@@ -2772,6 +2837,93 @@ export async function onRequest(context) {
         }
         waitUntil(runEnrichment(env, hotelId));
         return json({ status: 'running' });
+      }
+
+      // Nimmt die Rohantwort entgegen, die die Bruecke im Browser abgeholt hat.
+      // Bereinigt und sortiert wird hier, mit derselben Funktion wie sonst auch.
+      if (sub === '/import' && method === 'POST') {
+        if (!isAdmin(env, user)) return fail('Nur fuer die Verwaltung', 403);
+
+        const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
+        if (!hotel) return fail('Hotel nicht gefunden', 404);
+
+        const koerper = await request.json().catch(() => ({}));
+        if ((koerper.kette || 'hilton') !== 'hilton') {
+          return fail('Unbekannte Kette: ' + koerper.kette, 400);
+        }
+
+        const quelle = koerper.quelle || hiltonZimmerseite(hotel);
+        const zimmer = hiltonZimmerAusAntwort(koerper.antwort, quelle);
+        if (!zimmer) return fail('Antwort enthaelt keine Zimmerkategorien', 400);
+        if (zimmer.length < 3) {
+          return fail('Nur ' + zimmer.length + ' Kategorien – zu wenig fuer eine Leiter', 400);
+        }
+
+        // Reihenfolge vom Modell, sonst Hiltons eigene Einteilung.
+        let sortiert = zimmer;
+        let verlaesslich = 0;
+        const reihenfolge = await sortRooms(env, hotel, {
+          text: zimmer.map((z, i) => (i + 1) + '. ' + z.name + ' | ' + (z.description || '')).join('\n'),
+        }).catch(() => null);
+
+        if (reihenfolge?.length) {
+          const offen = [...zimmer];
+          const neu = [];
+          for (const name of reihenfolge) {
+            const i = offen.findIndex((z) => slug(z.name) === slug(String(name)));
+            if (i >= 0) neu.push(offen.splice(i, 1)[0]);
+          }
+          neu.push(...offen);
+          sortiert = neu;
+          verlaesslich = 1;
+        }
+
+        const stamp = now();
+        const inserts = sortiert.slice(0, 30).map((r, i) =>
+          env.DB.prepare(
+            `INSERT INTO room_types
+               (hotel_id, name, rank, confirmed, source, source_url, type, size_sqm,
+                bed_type, max_occupancy, description, researched_at, created_at, provisional)
+             VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+             ON CONFLICT(hotel_id, name) DO UPDATE SET
+               provisional   = 0,
+               rank          = CASE WHEN room_types.confirmed = 1 THEN room_types.rank ELSE excluded.rank END,
+               type          = COALESCE(excluded.type, room_types.type),
+               size_sqm      = COALESCE(excluded.size_sqm, room_types.size_sqm),
+               bed_type      = COALESCE(excluded.bed_type, room_types.bed_type),
+               max_occupancy = COALESCE(excluded.max_occupancy, room_types.max_occupancy),
+               description   = COALESCE(excluded.description, room_types.description),
+               source        = excluded.source,
+               source_url    = COALESCE(excluded.source_url, room_types.source_url),
+               researched_at = excluded.researched_at`
+          ).bind(
+            hotelId, r.name, i + 1, r.source, r.source_url,
+            r.type === 'suite' ? 'suite' : 'room',
+            optionalNumber(r.size_sqm), r.bed_type || null,
+            optionalNumber(r.max_occupancy), r.description || null, stamp, stamp
+          )
+        );
+
+        // Was aus Suche oder Portalen stammt, weicht den amtlichen Namen.
+        inserts.push(env.DB.prepare(
+          `DELETE FROM room_types
+            WHERE hotel_id = ? AND confirmed = 0 AND source <> 'official_chain_api'`
+        ).bind(hotelId));
+
+        inserts.push(env.DB.prepare(
+          `UPDATE hotels SET enrich_status = 'ready', enrich_error = NULL,
+                  enriched_at = ?, rank_reliable = ?, program = COALESCE(program, 'Hilton Honors')
+             WHERE id = ?`
+        ).bind(stamp, verlaesslich, hotelId));
+
+        await env.DB.batch(inserts);
+
+        return json({
+          hotel: hotel.name,
+          gespeichert: sortiert.length,
+          sortiert_vom_modell: Boolean(verlaesslich),
+          namen: sortiert.map((z) => z.name),
+        });
       }
 
       if (sub === '/rooms' && method === 'POST') {

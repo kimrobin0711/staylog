@@ -78,6 +78,8 @@ Alle unter `/api/`. Anmeldung über die Kopfzeilen `x-stay-pass` und
 | `/hotels/:id/enrich?debug=1` | POST | Diagnose ohne Speichern: gelesene Seiten, Rohantwort des Modells, gefundene Namen, `marsha`, `ctyhocn`, `hilton_fehler` |
 | `/hotels/:id/rooms` | POST | Kategorien bestätigen, sortieren, umbenennen (`{rename:{von,nach}}`), ergänzen, entfernen |
 | `/hotels/status` | GET | Zustand aller Recherchen |
+| `/hotels/offen?kette=hilton&alle=` | GET | Liste für die Brücke: Häuser einer Kette samt CTYHOCN und Zimmerseite. Nur Verwaltung |
+| `/hotels/:id/import` | POST | Nimmt die Rohantwort der Brücke entgegen, bereinigt, sortiert, speichert. Nur Verwaltung |
 | `/hotels/unstick` | POST | hängende Läufe freigeben |
 
 ### Aufenthalte
@@ -258,8 +260,11 @@ npx wrangler d1 execute staylog --remote --file=.\migration-name.sql
 
 - **Radisson** ist über Cloudflare nicht erreichbar (Akamai) und liefert keine
   schema.org-Blöcke. Die JSON-Abfrage fehlt noch.
-- **Hilton** hat seit dem 9.9. eine eigene Abfrage (Abschnitt 4, Stufe 1b). Ob
-  Akamai sie aus Cloudflare heraus durchlässt, ist noch nicht bestätigt.
+- **Hilton** ist aus Cloudflare heraus nicht erreichbar. Akamai antwortet auf die
+  GraphQL-Abfrage mit `HTTP 200, text/html, "Success"` — die Anfrage kommt am
+  Server nie an. Der Browserdienst hilft nicht: Cloudflare weist ihn laut eigener
+  Dokumentation über nicht änderbare Kopfzeilen als Bot aus. Deshalb die Brücke
+  (Abschnitt 8).
 - **Marriott-Zimmerseiten** laden ihre Liste erst bei einer
   Verfügbarkeitsabfrage; die offene Abfrage umgeht das.
 - **Playwright** funktioniert in Pages Functions nicht (`fs.mkdtemp` fehlt).
@@ -268,3 +273,36 @@ npx wrangler d1 execute staylog --remote --file=.\migration-name.sql
 - Die Prüfwerkzeuge `/probe` und `/playwright` sind Entwicklungsreste und
   können entfernt werden.
 - `/tree` und `/geo/ping` werden von der Oberfläche nicht mehr aufgerufen.
+
+---
+
+## 8. Die Brücke
+
+Liegt in `bruecke/`, läuft auf dem eigenen Rechner, gehört **nicht** zum Deploy.
+
+Playwright startet das installierte Chrome oder Edge, öffnet eine
+Hilton-Zimmerseite und lässt Akamais Prüfskript laufen. Danach steht das Cookie
+für `hilton.com` insgesamt — jedes weitere Haus braucht nur noch eine Abfrage
+aus der laufenden Seite heraus, kein neuer Seitenaufbau. Dreißig Häuser dauern
+gut eine Minute.
+
+Es wird nichts nachgebaut: Die Seite macht ihre eigene Abfrage, die Brücke liest
+mit. Bereinigt, sortiert und gespeichert wird auf dem Server über
+`/hotels/:id/import` — dort läuft dieselbe Funktion `hiltonZimmerAusAntwort`
+wie beim normalen Abruf. Es gibt also weiterhin **eine** Bereinigung, nicht zwei.
+
+```powershell
+cd bruecke
+npm install
+node bruecke.mjs            # nur Häuser ohne amtliche Kategorien
+node bruecke.mjs --alle     # auch zum Auffrischen
+node bruecke.mjs --trocken  # abfragen, nichts speichern
+```
+
+Anmeldung mit der Adresse aus `ADMIN_EMAIL` und `STAY_PASSWORD`; beides lässt
+sich über `$env:STAYLOG_USER` und `$env:STAY_PASSWORD` vorgeben.
+
+Häuser ohne hilton.com-Adresse in der Datenbank haben keinen CTYHOCN und werden
+übersprungen; sie stehen am Ende in der Zusammenfassung.
+
+Einzelheiten in `bruecke/LIESMICH.md`.

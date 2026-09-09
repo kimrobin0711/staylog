@@ -833,19 +833,38 @@ async function hiltonAbfrage(ctyhocn, verweis, kurz) {
     body: JSON.stringify(koerper),
   });
 
+  const stufe = kurz ? 'kurz' : 'voll';
+  const typ = res.headers.get('content-type') || 'ohne Angabe';
+  const roh = await res.text().catch(() => '');
+
   if (!res.ok) {
-    letzterHiltonfehler = (kurz ? 'kurz' : 'voll') + ': HTTP ' + res.status
-      + ' ' + (await res.text().catch(() => '')).slice(0, 200);
+    letzterHiltonfehler = stufe + ': HTTP ' + res.status + ' [' + typ + '] ' + roh.slice(0, 200);
     return null;
   }
 
-  const daten = await res.json().catch(() => null);
-  if (daten?.errors?.length) {
-    letzterHiltonfehler = (kurz ? 'kurz' : 'voll') + ': '
-      + String(daten.errors[0]?.message || '').slice(0, 200);
+  // Akamai antwortet im Sperrfall gern mit 200 und einer HTML-Seite. Ohne
+  // diesen Zweig scheitert der Abruf lautlos und die Diagnose bleibt leer.
+  let daten = null;
+  try {
+    daten = JSON.parse(roh);
+  } catch {
+    letzterHiltonfehler = stufe + ': HTTP ' + res.status + ', kein JSON [' + typ + '] '
+      + roh.replace(/\s+/g, ' ').slice(0, 250);
+    return null;
   }
+
+  if (daten?.errors?.length) {
+    letzterHiltonfehler = stufe + ': GraphQL-Fehler: '
+      + daten.errors.map((f) => f?.message).filter(Boolean).join(' | ').slice(0, 250);
+  }
+
   const hotel = daten?.data?.hotel;
-  return Array.isArray(hotel?.roomTypes) && hotel.roomTypes.length ? { hotel, url } : null;
+  if (!Array.isArray(hotel?.roomTypes) || !hotel.roomTypes.length) {
+    letzterHiltonfehler = letzterHiltonfehler
+      || stufe + ': HTTP ' + res.status + ', JSON ohne roomTypes: ' + roh.slice(0, 250);
+    return null;
+  }
+  return { hotel, url };
 }
 
 // Hilton fuehrt jede Bettvariante als eigene Kategorie: "Zimmer mit
@@ -1148,6 +1167,11 @@ const PROGRAMM_DOMAIN = {
 // Buchungsportale liefern eigene Zimmernamen. Sie sind der letzte Rueckfall,
 // wenn die offiziellen Seiten nichts hergeben – und werden dann als vorlaeufig
 // gekennzeichnet, damit die Runde sie korrigiert. Metasuchen bleiben tabu.
+// Alte Kettenseiten stehen noch im Netz und im Suchindex, tragen aber Namen von
+// vor der letzten Umbenennung. Hiltons www3 nennt Kategorien, die es so seit
+// Jahren nicht mehr gibt – die duerfen nie eine aktuelle Liste ueberschreiben.
+const VERALTET = /(^|\/\/)(www3\.hilton\.com|secure3\.hilton\.com|hiltonhotels\.com)/i;
+
 const PORTALE = ['booking.com', 'hotels.com', 'expedia.com', 'expedia.de', 'agoda.com'];
 const istPortal = (url) => {
   try {
@@ -1778,6 +1802,7 @@ async function runEnrichment(env, hotelId) {
     // Metasuchen, Sammelseiten und PDFs bleiben draussen.
     let brauchbar = rooms
       .filter((r) => r.source_url && !/\.pdf($|\?)/i.test(r.source_url) && r.confidence !== 'low')
+      .filter((r) => !VERALTET.test(r.source_url))
       .filter((r) => istOffiziell(r.source_url) || istPortal(r.source_url))
       .map((r) => ({ ...r, source: istOffiziell(r.source_url) ? r.source : 'portal_provisional' }));
 

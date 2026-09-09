@@ -1,6 +1,6 @@
 # stayLOG — Technische Dokumentation
 
-Stand: 8. September 2026
+Stand: 9. September 2026
 
 ---
 
@@ -75,7 +75,7 @@ Alle unter `/api/`. Anmeldung über die Kopfzeilen `x-stay-pass` und
 | `/hotels/:id/community` | GET | Auswertung des Hauses: Quoten je Statuslevel, Upgrade-Wege, Benefits, alle Aufenthalte |
 | `/hotels/:id/images` | GET | Bild und Bewertung. Beides liegt in der Datenbank, Google wird höchstens einmal im Monat je Haus gefragt |
 | `/hotels/:id/enrich?wait=1` | POST | Zimmerrecherche, wartend. Einmal im Monat je Haus, sofern schon drei Kategorien vorliegen |
-| `/hotels/:id/enrich?debug=1` | POST | Diagnose ohne Speichern: gelesene Seiten, Rohantwort des Modells, gefundene Namen |
+| `/hotels/:id/enrich?debug=1` | POST | Diagnose ohne Speichern: gelesene Seiten, Rohantwort des Modells, gefundene Namen, `marsha`, `ctyhocn`, `hilton_fehler` |
 | `/hotels/:id/rooms` | POST | Kategorien bestätigen, sortieren, umbenennen (`{rename:{von,nach}}`), ergänzen, entfernen |
 | `/hotels/status` | GET | Zustand aller Recherchen |
 | `/hotels/unstick` | POST | hängende Läufe freigeben |
@@ -132,6 +132,36 @@ wir Name, Beschreibung, Zimmercode, Größe, Bettentyp und Belegung.
 
 Nötig sind eine Browser-Kennung und eine `referer`-Kopfzeile.
 
+**Stufe 1b — Hilton, offene Abfrage.** Gleiche Rolle wie bei Marriott.
+
+```
+POST https://www.hilton.com/graphql/customer
+     ?appName=dx-property-ui&appVersion=dx-property-ui%3A1024021
+     &operationName=hotel_roomTypes&bl=de&language=de
+```
+
+Kennung ist der CTYHOCN aus der Adresse:
+`/de/hotels/frahitw-hilton-frankfurt-city-centre/` ergibt `FRAHITW`.
+
+Genutzt wird `hotel.roomTypes` — das ist **Inhalt, keine Verfügbarkeit**, es
+braucht also kein Datum. Je Eintrag kommen `roomTypeName`, `roomTypeCode`,
+`accommodationCode` (STD, EXEC, STE) und `customDescription` als HTML.
+Zusätzlich ordnet `roomTypeCategories` jeden Code einer Gruppe zu: `guest`,
+`executive`, `suites`. Das ist eine belastbare Grobsortierung für die
+Upgrade-Leiter; das Modell muss nur noch innerhalb der Gruppen ordnen.
+
+Nötig sind Browser-Kennung, `origin`, `referer` und `dx-platform: web`.
+Cookies werden nicht mitgeschickt. Geht die schlanke Abfrage nicht durch,
+folgt automatisch die Fassung, die die Seite selbst schickt
+(`hotel_shopPropAvail`, mit Datum, sehr große Antwort).
+
+Hilton führt jede Bettvariante als eigene Kategorie. `hiltonRoomName`
+schneidet „mit King-Size-Bett" ab und setzt „Zweibettzimmer" auf „Zimmer".
+Aus 17 Einträgen in Frankfurt werden so 13 Kategorien; die Bettarten landen
+mit „oder" verbunden im Feld `bed_type`.
+
+Prüfen ohne Deploy: `.\test-hilton.ps1 FRAHITW`
+
 **Stufe 2 — schema.org.** Viele Ketten legen ihre Kategorien als
 `"@type":"HotelRoom"` ins HTML. Bei Hilton stehen dort Name, Beschreibung,
 Bettentyp und Größe. Erst wird die Zimmerseite normal abgerufen, bei einer
@@ -152,9 +182,11 @@ Weniger als drei Kategorien gelten als unvollständig; dann wird nichts
 gespeichert und die Oberfläche bietet das Selbsteintragen an.
 
 **Sperren:** Marriott liefert eine abgespeckte Fassung an Rechenzentren,
-deshalb die offene Abfrage. **Hilton und Radisson blocken Cloudflare
-vollständig über Akamai** — dort hilft nur ein Dienst mit
-Wohnanschluss-Adressen oder ein Abruf vom eigenen Rechner.
+deshalb die offene Abfrage. Bei **Hilton** blockt Akamai die Zimmerseite; ob
+auch die GraphQL-Abfrage betroffen ist, zeigt `hilton_fehler` in der Diagnose.
+**Radisson** ist weiterhin offen — dort liegt kein schema.org-Block im HTML,
+die Liste wird ebenfalls per JSON nachgeladen. Die Abfrage ist noch nicht
+mitgeschnitten.
 
 ### Ortssuche
 
@@ -224,7 +256,10 @@ npx wrangler d1 execute staylog --remote --file=.\migration-name.sql
 
 ## 7. Bekannte Grenzen
 
-- **Hilton und Radisson** sind über Cloudflare nicht erreichbar (Akamai).
+- **Radisson** ist über Cloudflare nicht erreichbar (Akamai) und liefert keine
+  schema.org-Blöcke. Die JSON-Abfrage fehlt noch.
+- **Hilton** hat seit dem 9.9. eine eigene Abfrage (Abschnitt 4, Stufe 1b). Ob
+  Akamai sie aus Cloudflare heraus durchlässt, ist noch nicht bestätigt.
 - **Marriott-Zimmerseiten** laden ihre Liste erst bei einer
   Verfügbarkeitsabfrage; die offene Abfrage umgeht das.
 - **Playwright** funktioniert in Pages Functions nicht (`fs.mkdtemp` fehlt).

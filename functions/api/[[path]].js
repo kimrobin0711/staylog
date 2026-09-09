@@ -714,7 +714,268 @@ async function marriottRoomCards(hotel, marshaVorgabe) {
     zimmer.push(eintrag);
   }
 
-  return zimmer.length ? { marsha, url, zimmer } : null;
+  return zimmer.length ? { marsha, quelle: 'marriott-api', url, zimmer } : null;
+}
+
+// ---------------------------------------------------------------- Hilton
+
+// Hiltons Zimmerliste steckt hinter einer GraphQL-Abfrage, die dieselbe Rolle
+// spielt wie Marriotts roomCards: sie liefert die verbindlichen Namen, ohne
+// dass ein Datum noetig waere. Die Kennung (CTYHOCN) steht in der Adresse:
+// .../de/hotels/frahitw-hilton-frankfurt-city-centre/  ->  FRAHITW
+function ctyhocnCode(website) {
+  if (!website || !/hilton\.com/i.test(website)) return null;
+  const treffer = website.match(/\/hotels\/([a-z0-9]{5,8})-/i);
+  return treffer ? treffer[1].toUpperCase() : null;
+}
+
+// Weiche Marken (Curio, Tapestry, LXR) treten oft unter eigener Adresse auf.
+async function findHiltonPage(hotel) {
+  const suche = [hotel.name, hotel.city, 'hilton'].filter(Boolean).join(' ');
+  try {
+    const res = await fetch(
+      'https://duckduckgo.com/html/?q=' + encodeURIComponent('site:hilton.com ' + suche),
+      {
+        signal: AbortSignal.timeout(12000),
+        headers: {
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+            + '(KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const html = await res.text();
+    const treffer = html.match(/hilton\.com(?:%2F|\/)[a-z-]{2,5}(?:%2F|\/)hotels(?:%2F|\/)([a-z0-9]{5,8})-/i);
+    return treffer ? treffer[1].toUpperCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+// Die schlanke Abfrage: nur der Inhaltsteil, keine Preise, keine Daten.
+const HILTON_ABFRAGE_KURZ = `query hotel_roomTypes($ctyhocn: String!, $language: String!) {
+  hotel(ctyhocn: $ctyhocn, language: $language) {
+    roomTypeCategories { category roomTypes { roomTypeCode } }
+    roomTypes {
+      accommodationCode
+      roomTypeCode
+      roomTypeName @toTitleCase
+      desc: customDescription
+      highlights: features(first: 8) { name }
+    }
+  }
+}`;
+
+// Rueckfall: genau die Abfrage, die die Seite selbst schickt. Falls Hilton nur
+// bekannte Operationen zulaesst, geht wenigstens diese durch. Sie braucht ein
+// Datum und liefert eine sehr grosse Antwort – deshalb nur als zweiter Versuch.
+const HILTON_ABFRAGE_VOLL = `query hotel_shopPropAvail($ctyhocn: String!, $arrivalDate: String!, $departureDate: String!, $numRooms: Int!, $numAdults: Int!, $numChildren: Int!, $language: String!) {
+  hotel(ctyhocn: $ctyhocn, language: $language) {
+    shopAvail(
+      input: {arrivalDate: $arrivalDate, departureDate: $departureDate, numRooms: $numRooms, numAdults: $numAdults, numChildren: $numChildren}
+    ) {
+      currencyCode
+    }
+    roomTypeCategories { category roomTypes { roomTypeCode } }
+    roomTypes {
+      accommodationCode
+      roomTypeCode
+      roomTypeName @toTitleCase
+      desc: customDescription
+    }
+  }
+}`;
+
+// Merkt sich, warum Hilton nichts geliefert hat – nur fuer die Diagnose.
+let letzterHiltonfehler = null;
+
+async function hiltonAbfrage(ctyhocn, verweis, kurz) {
+  const tag = (plus) => new Date(Date.now() + plus * 86400000).toISOString().slice(0, 10);
+
+  const koerper = kurz
+    ? {
+        operationName: 'hotel_roomTypes',
+        query: HILTON_ABFRAGE_KURZ,
+        variables: { ctyhocn, language: 'de' },
+      }
+    : {
+        operationName: 'hotel_shopPropAvail',
+        query: HILTON_ABFRAGE_VOLL,
+        variables: {
+          ctyhocn,
+          language: 'de',
+          arrivalDate: tag(30),
+          departureDate: tag(31),
+          numRooms: 1,
+          numAdults: 1,
+          numChildren: 0,
+        },
+      };
+
+  const url = 'https://www.hilton.com/graphql/customer'
+    + '?appName=dx-property-ui&appVersion=dx-property-ui%3A1024021'
+    + '&operationName=' + koerper.operationName
+    + '&originalOpName=getHotelRooms&bl=de&language=de';
+
+  const res = await fetch(url, {
+    method: 'POST',
+    signal: AbortSignal.timeout(20000),
+    headers: {
+      'content-type': 'application/json',
+      accept: '*/*',
+      'accept-language': 'de,en-US;q=0.9,en;q=0.8',
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        + '(KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+      'dx-platform': 'web',
+      origin: 'https://www.hilton.com',
+      referer: verweis,
+    },
+    body: JSON.stringify(koerper),
+  });
+
+  if (!res.ok) {
+    letzterHiltonfehler = (kurz ? 'kurz' : 'voll') + ': HTTP ' + res.status
+      + ' ' + (await res.text().catch(() => '')).slice(0, 200);
+    return null;
+  }
+
+  const daten = await res.json().catch(() => null);
+  if (daten?.errors?.length) {
+    letzterHiltonfehler = (kurz ? 'kurz' : 'voll') + ': '
+      + String(daten.errors[0]?.message || '').slice(0, 200);
+  }
+  const hotel = daten?.data?.hotel;
+  return Array.isArray(hotel?.roomTypes) && hotel.roomTypes.length ? { hotel, url } : null;
+}
+
+// Hilton fuehrt jede Bettvariante als eigene Kategorie: "Zimmer mit
+// King-Size-Bett", "Zimmer mit Queen-Size-Bett" und "Zweibettzimmer" sind
+// dasselbe Zimmer. Fuer die Upgrade-Leiter zaehlt nur "Zimmer".
+function hiltonRoomName(name) {
+  const treffer = (name.match(/\s+mit\s+[^,]*?bett(?:en)?\b/i) || [])[0];
+  let bett = treffer ? treffer.replace(/^\s*mit\s+/i, '').trim() : null;
+  let sauber = name.replace(/\s+mit\s+[^,]*?bett(?:en)?\b/i, '');
+  if (/Zweibettzimmer/i.test(sauber)) bett = bett || 'Zwei Einzelbetten';
+  sauber = sauber.replace(/Zweibettzimmer/gi, 'Zimmer');
+  sauber = sauber.replace(/\s{2,}/g, ' ').replace(/\s+,/g, ',').trim();
+  return { name: sauber.length >= 3 ? sauber : name.trim(), bett };
+}
+
+// Liefert die verbindliche Zimmerliste eines Hilton-Hauses.
+async function hiltonRoomTypes(hotel, ctyhocnVorgabe) {
+  const ctyhocn = ctyhocnVorgabe || ctyhocnCode(hotel.website);
+  if (!ctyhocn) return null;
+  letzterHiltonfehler = null;
+
+  const verweis = hotel.website && /hilton\.com/i.test(hotel.website)
+    ? hotel.website.replace(/\/+$/, '') + '/rooms/'
+    : 'https://www.hilton.com/de/hotels/' + ctyhocn.toLowerCase() + '/rooms/';
+
+  // Erst die schlanke Abfrage, sonst die Fassung der Seite selbst.
+  let antwort = await hiltonAbfrage(ctyhocn, verweis, true).catch((e) => {
+    letzterHiltonfehler = 'kurz: ' + String(e.message || e);
+    return null;
+  });
+  if (!antwort) {
+    antwort = await hiltonAbfrage(ctyhocn, verweis, false).catch((e) => {
+      letzterHiltonfehler = 'voll: ' + String(e.message || e);
+      return null;
+    });
+  }
+  if (!antwort) return null;
+
+  // Aus roomTypeCategories kennen wir die grobe Ordnung: guest, executive, suites.
+  const gruppe = new Map();
+  for (const k of antwort.hotel.roomTypeCategories || []) {
+    for (const r of k.roomTypes || []) gruppe.set(r.roomTypeCode, k.category);
+  }
+
+  const zimmer = [];
+  const nachName = new Map();
+
+  for (const r of antwort.hotel.roomTypes) {
+    if (!r?.roomTypeName) continue;
+
+    const { name: sauber, bett } = hiltonRoomName(String(r.roomTypeName));
+    const schluessel = slug(sauber);
+
+    if (nachName.has(schluessel)) {
+      const vorhanden = nachName.get(schluessel);
+      if (bett && vorhanden.bed_type && !vorhanden.bed_type.includes(bett)) {
+        vorhanden.bed_type += ' oder ' + bett;
+      } else if (bett && !vorhanden.bed_type) {
+        vorhanden.bed_type = bett;
+      }
+      continue;
+    }
+
+    // Die Beschreibung kommt als HTML.
+    const text = String(r.desc || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const merkmale = (r.highlights || []).map((h) => h?.name).filter(Boolean).join(', ');
+    const belegung = Number(
+      (merkmale.match(/(?:f(?:ü|ue)r|for)\s+(\d+)\s+(?:personen|g(?:ä|ae)ste|guests|people)/i) || [])[1]
+    ) || null;
+    const groesse = Number((text.match(/(\d+)\s*m(?:²|2)\b/) || [])[1]) || null;
+
+    const kategorie = gruppe.get(r.roomTypeCode) || null;
+    const istSuite = r.accommodationCode === 'STE' || kategorie === 'suites' || /suite/i.test(sauber);
+
+    const eintrag = {
+      name: sauber,
+      code: r.roomTypeCode || null,
+      description: text ? text.slice(0, 300) : null,
+      type: istSuite ? 'suite' : 'room',
+      size_sqm: groesse,
+      bed_type: bett,
+      max_occupancy: belegung,
+      gruppe: kategorie,
+      source: 'official_chain_api',
+      source_url: antwort.url,
+      confidence: 'high',
+    };
+
+    nachName.set(schluessel, eintrag);
+    zimmer.push(eintrag);
+  }
+
+  return zimmer.length ? { ctyhocn, quelle: 'hilton-api', url: antwort.url, zimmer } : null;
+}
+
+// Faellt die Entscheidung, welche Kette eine offene Abfrage hat, und holt die
+// verbindliche Liste. Beide Aufrufwege – Recherche und Diagnose – nutzen diese
+// eine Stelle, damit sie nicht auseinanderlaufen koennen.
+const MARRIOTT_MARKEN = /marriott|autograph|tribute|moxy|aloft|element|westin|sheraton|meridien|renaissance|courtyard|residence inn|fairfield|ac hotel|st\.? regis|luxury collection|w hotel|delta hotels/i;
+const HILTON_MARKEN = /hilton|doubletree|hampton|embassy suites|waldorf|conrad|canopy|curio|tapestry|tru by|homewood|home2|motto|signia|lxr|spark by/i;
+
+async function verbindlicheListe(env, hotel) {
+  const kette = chainDomain(hotel) || '';
+  const marken = [hotel.name, hotel.brand, hotel.chain].filter(Boolean).join(' ');
+
+  if (kette.includes('marriott.com') || hotel.program === 'Marriott Bonvoy' || MARRIOTT_MARKEN.test(marken)) {
+    const marsha = marshaCode(hotel.website) || await findMarriottPage(hotel).catch(() => null);
+    if (marsha) {
+      const karten = await marriottRoomCards(hotel, marsha).catch(() => null);
+      if (karten) return karten;
+    }
+  }
+
+  if (kette.includes('hilton.com') || hotel.program === 'Hilton Honors' || HILTON_MARKEN.test(marken)) {
+    const ctyhocn = ctyhocnCode(hotel.website) || await findHiltonPage(hotel).catch(() => null);
+    if (ctyhocn) {
+      const karten = await hiltonRoomTypes(hotel, ctyhocn).catch(() => null);
+      if (karten) return karten;
+    }
+  }
+
+  const schema = await schemaRooms(env, hotel).catch(() => null);
+  if (schema) return { quelle: 'schema-org', url: schema.url, zimmer: schema.zimmer };
+
+  return null;
 }
 
 // Holt das rohe HTML einer Seite ueber den Browser. Nur so kommen wir an die
@@ -1369,29 +1630,14 @@ async function runEnrichment(env, hotelId) {
     const ziel = roomsUrl(hotel.website);
     const kette = chainDomain(hotel);   // Domain der Kette oder null
 
-    // Marriott zuerst: die offene Abfrage liefert die verbindlichen Namen.
-    let karten = null;
-    const istMarriott = (chainDomain(hotel) || '').includes('marriott.com')
-      || hotel.program === 'Marriott Bonvoy'
-      || /marriott|autograph|tribute|moxy|aloft|element|westin|sheraton|meridien|renaissance|courtyard|residence inn|fairfield|ac hotel|st\.? regis|luxury collection|w hotel|delta hotels/i
-        .test([hotel.name, hotel.brand, hotel.chain].filter(Boolean).join(' '));
-
-    if (istMarriott) {
-      // Steht keine Marriott-Adresse in der Datenbank, suchen wir sie zuerst.
-      const marsha = marshaCode(hotel.website) || await findMarriottPage(hotel).catch(() => null);
-      if (marsha) karten = await marriottRoomCards(hotel, marsha).catch(() => null);
-    }
-    // Zweitbeste Quelle: die schema.org-Bloecke der Hotelseite.
-    if (!karten) {
-      const schema = await schemaRooms(env, hotel).catch(() => null);
-      if (schema) karten = { marsha: null, url: schema.url, zimmer: schema.zimmer };
-    }
+    // Offene Abfrage der Kette, sonst schema.org. Beide Wege an einer Stelle.
+    let karten = await verbindlicheListe(env, hotel).catch(() => null);
 
     // Liegt eine verbindliche Liste vor, sparen wir uns Galerie und Suche.
     let seite = karten ? {
       url: karten.url,
       quellen: [karten.url],
-      quelle: karten.marsha ? 'marriott-api' : 'schema-org',
+      quelle: karten.quelle || 'schema-org',
       verbindlich: true,
       text: 'Verbindliche Zimmerkategorien des Hauses, direkt vom Betreiber:\n'
         + karten.zimmer.map((z, i) =>
@@ -1437,13 +1683,7 @@ async function runEnrichment(env, hotelId) {
 
     if (!karten && kettenAdresse) {
       const nachtraeglich = { ...hotel, website: kettenAdresse, program: result.program };
-      const marsha = marshaCode(kettenAdresse);
-
-      if (marsha) karten = await marriottRoomCards(nachtraeglich, marsha).catch(() => null);
-      if (!karten) {
-        const schema = await schemaRooms(env, nachtraeglich).catch(() => null);
-        if (schema) karten = { marsha: null, url: schema.url, zimmer: schema.zimmer };
-      }
+      karten = await verbindlicheListe(env, nachtraeglich).catch(() => null);
 
       // Nur uebernehmen, wenn die nachgeholte Liste mindestens so gut ist.
       const bisher = Array.isArray(result.rooms) ? result.rooms.length : 0;
@@ -2433,18 +2673,11 @@ export async function onRequest(context) {
         const ziel = roomsUrl(hotel.website);
         const kette = chainDomain(hotel);
 
-        let karten = null;
-        if ((kette || '').includes('marriott.com')) {
-          karten = await marriottRoomCards(hotel).catch(() => null);
-        }
-        if (!karten) {
-          const schema = await schemaRooms(env, hotel).catch(() => null);
-          if (schema) karten = { marsha: null, url: schema.url, zimmer: schema.zimmer };
-        }
+        const karten = await verbindlicheListe(env, hotel).catch(() => null);
         const seite = karten ? {
           url: karten.url,
           quellen: [karten.url],
-          quelle: karten.marsha ? 'marriott-api' : 'schema-org',
+          quelle: karten.quelle || 'schema-org',
           verbindlich: true,
           text: karten.zimmer.map((z) => z.name + ' | ' + (z.description || '')).join('\n'),
         } : await officialCorpus(env, hotel, kette);
@@ -2458,7 +2691,11 @@ export async function onRequest(context) {
           seite_quelle: seite?.quelle || (seite ? 'fetch' : null),
           seite_laenge: seite?.text?.length || 0,
           seite_anfang: seite?.text?.slice(0, 800) || null,
+          marsha: marshaCode(hotel.website),
+          ctyhocn: ctyhocnCode(hotel.website),
+          verbindliche_namen: karten?.zimmer?.map((z) => z.name) || null,
           browser_fehler: letzterBrowserfehler,
+          hilton_fehler: letzterHiltonfehler,
         };
 
         try {

@@ -870,14 +870,35 @@ async function hiltonAbfrage(ctyhocn, verweis, kurz) {
 // Hilton fuehrt jede Bettvariante als eigene Kategorie: "Zimmer mit
 // King-Size-Bett", "Zimmer mit Queen-Size-Bett" und "Zweibettzimmer" sind
 // dasselbe Zimmer. Fuer die Upgrade-Leiter zaehlt nur "Zimmer".
+// Der Loungezugang haengt bei Hilton als Zusatz hinten dran ("Executive Zimmer
+// - Zutritt zur Lounge"). Er steckt schon in der Kategorie und wuerde sie sonst
+// doppeln.
+const HILTON_LOUNGE = /\s*[-–—]\s*(?:zutritt|zugang)\s+zur\s+[^-–—]*lounge[^-–—]*$/i;
+const HILTON_LOUNGE_EN = /\s*[-–—]\s*(?:executive\s+)?lounge\s+access\s*$/i;
+
 function hiltonRoomName(name) {
-  const treffer = (name.match(/\s+mit\s+[^,]*?bett(?:en)?\b/i) || [])[0];
+  let sauber = name.replace(HILTON_LOUNGE, '').replace(HILTON_LOUNGE_EN, '');
+
+  const treffer = (sauber.match(/\s+mit\s+[^,]*?bett(?:en)?\b/i) || [])[0];
   let bett = treffer ? treffer.replace(/^\s*mit\s+/i, '').trim() : null;
-  let sauber = name.replace(/\s+mit\s+[^,]*?bett(?:en)?\b/i, '');
+  sauber = sauber.replace(/\s+mit\s+[^,]*?bett(?:en)?\b/i, '');
+
   if (/Zweibettzimmer/i.test(sauber)) bett = bett || 'Zwei Einzelbetten';
   sauber = sauber.replace(/Zweibettzimmer/gi, 'Zimmer');
   sauber = sauber.replace(/\s{2,}/g, ' ').replace(/\s+,/g, ',').trim();
   return { name: sauber.length >= 3 ? sauber : name.trim(), bett };
+}
+
+// Hilton uebersetzt denselben Ausblick uneinheitlich: "Zimmer und Domblick",
+// "Zimmer mit Domblick" und "Zimmer mit Blick auf den Dom" sind dieselbe
+// Kategorie. Fuer den Vergleich werden die Formen angeglichen; angezeigt wird
+// weiterhin der Name, der zuerst kam.
+function hiltonSchluessel(name) {
+  let k = name.toLowerCase();
+  k = k.replace(/\s+(?:und|mit)\s+blick\s+auf\s+(?:den|die|das)\s+/g, ' mit ');
+  k = k.replace(/\s+und\s+/g, ' mit ');
+  k = k.replace(/blick\b/g, '');
+  return slug(k);
 }
 
 // Liefert die verbindliche Zimmerliste eines Hilton-Hauses.
@@ -900,7 +921,7 @@ function hiltonZimmerAusAntwort(hotelObjekt, quelleUrl) {
     if (!r?.roomTypeName) continue;
 
     const { name: sauber, bett } = hiltonRoomName(String(r.roomTypeName));
-    const schluessel = slug(sauber);
+    const schluessel = hiltonSchluessel(sauber);
 
     if (nachName.has(schluessel)) {
       const vorhanden = nachName.get(schluessel);
@@ -999,6 +1020,68 @@ function hiltonZimmerseite(hotel, ctyhocnVorgabe) {
 const MARRIOTT_MARKEN = /marriott|autograph|tribute|moxy|aloft|element|westin|sheraton|meridien|renaissance|courtyard|residence inn|fairfield|ac hotel|st\.? regis|luxury collection|w hotel|delta hotels/i;
 const HILTON_MARKEN = /hilton|doubletree|hampton|embassy suites|waldorf|conrad|canopy|curio|tapestry|tru by|homewood|home2|motto|signia|lxr|spark by/i;
 
+// Sucht die Kennung eines Hauses im Vorrat. Wer ein Hotel ueber die Ortssuche
+// anlegt, hat selten die Adresse der Kette dabei – ohne diesen Weg wuerde der
+// Vorrat gar nicht gefunden und die lange Recherche liefe unnoetig los.
+function vergleichsname(name) {
+  return slug(String(name || '')
+    .replace(/\bby hilton\b/gi, ' ')
+    .replace(/\ban slh hotel\b/gi, ' ')
+    .replace(/,/g, ' ')
+    .replace(/\bhotel\b/gi, ' '));
+}
+
+async function vorratKennung(env, hotel) {
+  const stadt = (hotel.city || '').trim();
+  const abfrage = stadt
+    ? `SELECT ctyhocn, name FROM chain_hotels WHERE kette = 'hilton' AND city LIKE ?`
+    : `SELECT ctyhocn, name FROM chain_hotels WHERE kette = 'hilton' AND name LIKE ?`;
+  const wert = stadt ? stadt : '%' + String(hotel.name || '').slice(0, 14) + '%';
+
+  const rows = await env.DB.prepare(abfrage).bind(wert).all().catch(() => null);
+  const ziel = vergleichsname(hotel.name);
+  if (!ziel) return null;
+
+  // Nur ein deckungsgleicher Name zaehlt. Alles Weichere verwechselt ein
+  // Hampton mit dem Hilton in derselben Stadt.
+  const treffer = (rows?.results || []).find((k) => vergleichsname(k.name) === ziel);
+  return treffer ? treffer.ctyhocn : null;
+}
+
+// Liest die Kategorien aus dem Vorrat. Der wird von der Bruecke gefuellt und
+// deckt ganze Regionen ab – dann braucht ein neues Haus gar keinen Abruf mehr.
+async function vorratLesen(env, ctyhocn) {
+  if (!ctyhocn) return null;
+
+  const rows = await env.DB.prepare(
+    `SELECT name, rank, type, size_sqm, bed_type, max_occupancy, description,
+            code, gruppe, source_url
+       FROM chain_rooms WHERE ctyhocn = ? ORDER BY rank, name`
+  ).bind(ctyhocn).all().catch(() => null);
+
+  const zimmer = rows?.results || [];
+  if (zimmer.length < 3) return null;
+
+  return {
+    ctyhocn,
+    quelle: 'hilton-vorrat',
+    url: zimmer[0].source_url || null,
+    zimmer: zimmer.map((z) => ({
+      name: z.name,
+      code: z.code,
+      description: z.description,
+      type: z.type === 'suite' ? 'suite' : 'room',
+      size_sqm: z.size_sqm,
+      bed_type: z.bed_type,
+      max_occupancy: z.max_occupancy,
+      gruppe: z.gruppe,
+      source: 'official_chain_api',
+      source_url: z.source_url,
+      confidence: 'high',
+    })),
+  };
+}
+
 async function verbindlicheListe(env, hotel) {
   const kette = chainDomain(hotel) || '';
   const marken = [hotel.name, hotel.brand, hotel.chain].filter(Boolean).join(' ');
@@ -1012,8 +1095,16 @@ async function verbindlicheListe(env, hotel) {
   }
 
   if (kette.includes('hilton.com') || hotel.program === 'Hilton Honors' || HILTON_MARKEN.test(marken)) {
-    const ctyhocn = ctyhocnCode(hotel.website) || await findHiltonPage(hotel).catch(() => null);
+    // Erst der Vorrat – auch ueber den Namen, falls keine Kettenadresse vorliegt.
+    const ausVorrat = ctyhocnCode(hotel.website) || await vorratKennung(env, hotel).catch(() => null);
+    if (ausVorrat) {
+      const vorrat = await vorratLesen(env, ausVorrat).catch(() => null);
+      if (vorrat) return vorrat;
+    }
+
+    const ctyhocn = ausVorrat || await findHiltonPage(hotel).catch(() => null);
     if (ctyhocn) {
+
       const karten = await hiltonRoomTypes(hotel, ctyhocn).catch(() => null);
       if (karten) return karten;
     }
@@ -1667,6 +1758,79 @@ function nameFitsHotel(alt, neu) {
   return false;
 }
 
+// Schneller Weg: Die Kategorien liegen im Vorrat, also entfaellt die grosse
+// Recherche. Es bleibt ein kurzer Aufruf fuer die Reihenfolge.
+async function ausVorratSpeichern(env, hotelId, hotel, karten) {
+  const stamm = await env.DB.prepare(
+    'SELECT name, brand, city, country, website FROM chain_hotels WHERE ctyhocn = ?'
+  ).bind(karten.ctyhocn).first().catch(() => null);
+
+  let sortiert = karten.zimmer;
+  let verlaesslich = 0;
+
+  const reihenfolge = await sortRooms(env, hotel, {
+    text: karten.zimmer.map((z, i) =>
+      (i + 1) + '. ' + z.name + ' | ' + (z.description || '')).join('\n'),
+  }).catch(() => null);
+
+  if (reihenfolge?.length) {
+    const offen = [...karten.zimmer];
+    const neu = [];
+    for (const name of reihenfolge) {
+      const i = offen.findIndex((z) => slug(z.name) === slug(String(name)));
+      if (i >= 0) neu.push(offen.splice(i, 1)[0]);
+    }
+    neu.push(...offen);
+    sortiert = neu;
+    verlaesslich = 1;
+  }
+
+  const stamp = now();
+  const befehle = sortiert.slice(0, 40).map((r, i) =>
+    env.DB.prepare(
+      `INSERT INTO room_types
+         (hotel_id, name, rank, confirmed, source, source_url, type, size_sqm,
+          bed_type, max_occupancy, description, researched_at, created_at, provisional)
+       VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+       ON CONFLICT(hotel_id, name) DO UPDATE SET
+         provisional   = 0,
+         rank          = CASE WHEN room_types.confirmed = 1 THEN room_types.rank ELSE excluded.rank END,
+         type          = COALESCE(excluded.type, room_types.type),
+         size_sqm      = COALESCE(excluded.size_sqm, room_types.size_sqm),
+         bed_type      = COALESCE(excluded.bed_type, room_types.bed_type),
+         max_occupancy = COALESCE(excluded.max_occupancy, room_types.max_occupancy),
+         description   = COALESCE(excluded.description, room_types.description),
+         source        = excluded.source,
+         source_url    = COALESCE(excluded.source_url, room_types.source_url),
+         researched_at = excluded.researched_at`
+    ).bind(
+      hotelId, r.name, i + 1, r.source, r.source_url,
+      r.type === 'suite' ? 'suite' : 'room',
+      optionalNumber(r.size_sqm), r.bed_type || null,
+      optionalNumber(r.max_occupancy), r.description || null, stamp, stamp
+    )
+  );
+
+  befehle.push(env.DB.prepare(
+    `DELETE FROM room_types
+      WHERE hotel_id = ? AND confirmed = 0 AND source <> 'official_chain_api'`
+  ).bind(hotelId));
+
+  befehle.push(env.DB.prepare(
+    `UPDATE hotels SET enrich_status = 'ready', enrich_error = NULL, enriched_at = ?,
+            rank_reliable = ?, program = COALESCE(program, 'Hilton Honors'),
+            brand = COALESCE(brand, ?), chain = COALESCE(chain, 'Hilton'),
+            city = COALESCE(city, ?), country = COALESCE(country, ?),
+            website = COALESCE(website, ?)
+       WHERE id = ?`
+  ).bind(
+    stamp, verlaesslich, stamm?.brand || null,
+    stamm?.city || null, stamm?.country || null, stamm?.website || null, hotelId
+  ));
+
+  await env.DB.batch(befehle);
+}
+
 async function runEnrichment(env, hotelId) {
   const hotel = await env.DB.prepare('SELECT * FROM hotels WHERE id = ?').bind(hotelId).first();
   if (!hotel) return;
@@ -1684,6 +1848,13 @@ async function runEnrichment(env, hotelId) {
 
     // Offene Abfrage der Kette, sonst schema.org. Beide Wege an einer Stelle.
     let karten = await verbindlicheListe(env, hotel).catch(() => null);
+
+    // Kommt die Liste aus dem Vorrat, sind Name, Ort und Kategorien bereits
+    // belegt. Dann braucht es keine Recherche mehr, nur noch die Reihenfolge.
+    if (karten?.quelle === 'hilton-vorrat') {
+      await ausVorratSpeichern(env, hotelId, hotel, karten);
+      return;
+    }
 
     // Liegt eine verbindliche Liste vor, sparen wir uns Galerie und Suche.
     let seite = karten ? {
@@ -2438,6 +2609,91 @@ export async function onRequest(context) {
 
     // Liste fuer die Bruecke: welche Haeuser einer Kette noch Kategorien
     // brauchen, samt der Kennung und der Adresse, die zu oeffnen ist.
+    // ------------------------------------------------ Vorrat der Ketten
+    // Welche Kennungen liegen schon im Vorrat? Die Bruecke ueberspringt sie.
+    if (path === '/chain/bekannt' && method === 'GET') {
+      if (!isAdmin(env, user)) return fail('Nur fuer die Verwaltung', 403);
+
+      const kette = (url.searchParams.get('kette') || 'hilton').toLowerCase();
+      const rows = await env.DB.prepare(
+        `SELECT h.ctyhocn, h.fetched_at,
+                (SELECT COUNT(*) FROM chain_rooms r WHERE r.ctyhocn = h.ctyhocn) AS kategorien
+           FROM chain_hotels h WHERE h.kette = ?`
+      ).bind(kette).all().catch(() => ({ results: [] }));
+
+      return json({
+        kette,
+        anzahl: rows.results.length,
+        bekannt: rows.results
+          .filter((r) => r.kategorien > 0)
+          .map((r) => ({ ctyhocn: r.ctyhocn, seit: r.fetched_at, kategorien: r.kategorien })),
+      });
+    }
+
+    // Nimmt ein Haus in den Vorrat auf. Die Bruecke schickt Stammdaten und die
+    // Rohantwort; bereinigt wird hier, mit derselben Funktion wie sonst auch.
+    if (path === '/chain/hilton' && method === 'POST') {
+      if (!isAdmin(env, user)) return fail('Nur fuer die Verwaltung', 403);
+
+      const koerper = await request.json().catch(() => ({}));
+      const info = koerper.info || {};
+      const ctyhocn = String(info.ctyhocn || '').toUpperCase();
+      if (!/^[A-Z0-9]{5,8}$/.test(ctyhocn)) return fail('Kennung fehlt oder passt nicht', 400);
+
+      const quelle = info.website
+        ? String(info.website).replace(/\/+$/, '') + '/rooms/'
+        : 'https://www.hilton.com/de/hotels/' + ctyhocn.toLowerCase() + '/rooms/';
+
+      const zimmer = hiltonZimmerAusAntwort(koerper.antwort, quelle);
+      if (!zimmer) return fail('Antwort enthaelt keine Zimmerkategorien', 400);
+
+      // Kommt die Kennung ohne Stammdaten, stehen sie in der Antwort selbst.
+      const a = koerper.antwort || {};
+      const stammName = info.name || a.name || ctyhocn;
+      const stammStadt = info.city || a.address?.city || null;
+      const stammLand = info.country || a.address?.country || null;
+      const stammMarke = info.brand || a.brandCode || null;
+
+      const stamp = now();
+      const befehle = [
+        env.DB.prepare(
+          `INSERT INTO chain_hotels (ctyhocn, kette, name, brand, city, country, website, lat, lon, fetched_at)
+           VALUES (?, 'hilton', ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(ctyhocn) DO UPDATE SET
+             name = excluded.name, brand = excluded.brand, city = excluded.city,
+             country = excluded.country, website = excluded.website,
+             lat = excluded.lat, lon = excluded.lon, fetched_at = excluded.fetched_at`
+        ).bind(
+          ctyhocn, String(stammName), stammMarke,
+          stammStadt, stammLand, info.website || null,
+          optionalNumber(info.lat), optionalNumber(info.lon), stamp
+        ),
+        // Alte Kategorien des Hauses weichen, sonst bleiben umbenannte stehen.
+        env.DB.prepare('DELETE FROM chain_rooms WHERE ctyhocn = ?').bind(ctyhocn),
+      ];
+
+      for (const [i, z] of zimmer.slice(0, 40).entries()) {
+        befehle.push(env.DB.prepare(
+          `INSERT INTO chain_rooms
+             (ctyhocn, name, rank, type, size_sqm, bed_type, max_occupancy,
+              description, code, gruppe, source_url, fetched_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(ctyhocn, name) DO UPDATE SET
+             rank = excluded.rank, type = excluded.type, size_sqm = excluded.size_sqm,
+             bed_type = excluded.bed_type, max_occupancy = excluded.max_occupancy,
+             description = excluded.description, code = excluded.code,
+             gruppe = excluded.gruppe, fetched_at = excluded.fetched_at`
+        ).bind(
+          ctyhocn, z.name, i + 1, z.type, optionalNumber(z.size_sqm),
+          z.bed_type || null, optionalNumber(z.max_occupancy),
+          z.description || null, z.code || null, z.gruppe || null, quelle, stamp
+        ));
+      }
+
+      await env.DB.batch(befehle);
+      return json({ ctyhocn, name: info.name || null, gespeichert: zimmer.length });
+    }
+
     if (path === '/hotels/offen' && method === 'GET') {
       if (!isAdmin(env, user)) return fail('Nur fuer die Verwaltung', 403);
 

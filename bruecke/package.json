@@ -6,7 +6,11 @@
   "scripts": {
     "start": "node bruecke.mjs",
     "trocken": "node bruecke.mjs --trocken",
-    "alle": "node bruecke.mjs --alle"
+    "alle": "node bruecke.mjs --alle",
+    "vorrat": "node vorrat.mjs",
+    "vorrat-liste": "node vorrat.mjs --nur-liste",
+    "erkunde": "node erkunde.mjs",
+    "ernte": "node ernte.mjs"
   },
   "dependencies": {
     "playwright": "^1.47.0"

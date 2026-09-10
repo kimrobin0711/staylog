@@ -160,10 +160,23 @@ const page = await kontext.newPage();
 
 // Einmal anmelden: eine beliebige Zimmerseite oeffnen, damit Akamais Skript
 // laeuft und das Cookie fuer hilton.com steht.
+// "commit" statt "domcontentloaded": Hiltons Seiten laden hunderte
+// Fremdskripte, das Ereignis kann ausbleiben. Ein Fehlschlag bricht den Lauf
+// nicht ab, sondern wird bis zu dreimal wiederholt.
 async function sitzungAufbauen(seite) {
   console.log('\nSitzung aufbauen: ' + seite);
-  await page.goto(seite, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await warte(8000);
+  for (let versuch = 1; versuch <= 3; versuch += 1) {
+    try {
+      await page.goto(seite, { waitUntil: 'commit', timeout: 45000 });
+      await warte(12000);
+      return true;
+    } catch (err) {
+      console.log('  Seitenaufbau fehlgeschlagen (' + versuch + '/3): '
+        + String(err.message || err).split('\n')[0]);
+      await warte(5000 * versuch);
+    }
+  }
+  return false;
 }
 
 await sitzungAufbauen(machbar[0].zimmerseite);

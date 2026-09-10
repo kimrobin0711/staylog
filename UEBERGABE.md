@@ -73,6 +73,12 @@ Browserdienst hilft auch nicht, Cloudflare weist ihn laut eigener Dokumentation
 **Brücke** in `bruecke/`: ein echter Browser auf dem eigenen Rechner, einmal
 angemeldet, dann alle Häuser hintereinander. Siehe `TECHNIK.md`, Abschnitt 8.
 
+**Vorrat.** `bruecke/vorrat.mjs` legt die Kategorien ganzer Regionen an, auch
+für Häuser, in denen niemand war. Sie liegen in `chain_hotels`/`chain_rooms`,
+geschlüsselt nach Kennung, getrennt von der Hotelliste. Trägt jemand später ein
+Hilton ein, sind die Kategorien sofort da — ohne Abruf. Europa sind rund 900
+Häuser und etwa eine halbe Stunde.
+
 **Offen: Radisson.** Dort liegen die Kategorien weder im HTML noch als
 schema.org-Block; die Liste wird ebenfalls per JSON nachgeladen. Die Abfrage
 ist noch nicht mitgeschnitten. Gleicher Weg: Zimmerseite öffnen,

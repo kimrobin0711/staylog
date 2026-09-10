@@ -80,6 +80,8 @@ Alle unter `/api/`. Anmeldung über die Kopfzeilen `x-stay-pass` und
 | `/hotels/status` | GET | Zustand aller Recherchen |
 | `/hotels/offen?kette=hilton&alle=` | GET | Liste für die Brücke: Häuser einer Kette samt CTYHOCN und Zimmerseite. Nur Verwaltung |
 | `/hotels/:id/import` | POST | Nimmt die Rohantwort der Brücke entgegen, bereinigt, sortiert, speichert. Nur Verwaltung |
+| `/chain/bekannt?kette=hilton` | GET | Welche Kennungen liegen im Vorrat. Nur Verwaltung |
+| `/chain/hilton` | POST | Nimmt ein Haus in den Vorrat auf. Nur Verwaltung |
 | `/hotels/unstick` | POST | hängende Läufe freigeben |
 
 ### Aufenthalte
@@ -158,9 +160,19 @@ folgt automatisch die Fassung, die die Seite selbst schickt
 (`hotel_shopPropAvail`, mit Datum, sehr große Antwort).
 
 Hilton führt jede Bettvariante als eigene Kategorie. `hiltonRoomName`
-schneidet „mit King-Size-Bett" ab und setzt „Zweibettzimmer" auf „Zimmer".
-Aus 17 Einträgen in Frankfurt werden so 13 Kategorien; die Bettarten landen
-mit „oder" verbunden im Feld `bed_type`.
+schneidet „mit King-Size-Bett" ab, setzt „Zweibettzimmer" auf „Zimmer" und
+entfernt den angehängten Loungezugang („– Zutritt zur Lounge"), der ohnehin
+schon in der Kategorie steckt. Die Bettarten landen mit „oder" verbunden im
+Feld `bed_type`.
+
+`hiltonSchluessel` gleicht zusätzlich die Schreibweisen des Ausblicks an:
+Hilton übersetzt uneinheitlich, „Zimmer und Domblick", „Zimmer mit Domblick"
+und „Zimmer mit Blick auf den Dom" sind dasselbe. Für den Vergleich werden
+„und" zu „mit", „Blick auf den X" zu „X" und das Wort „blick" entfernt.
+Angezeigt wird weiterhin die Schreibweise, die zuerst kam.
+
+Frankfurt: 17 Einträge werden zu 13. Berlin: 29 werden zu 25 — dort gibt es
+tatsächlich so viele Kategorien.
 
 Prüfen ohne Deploy: `.\test-hilton.ps1 FRAHITW`
 
@@ -233,7 +245,12 @@ nur ohne den jeweiligen Dienst. Der Stand steht im Verwaltungsbereich.
 ## 6. Datenbank
 
 Tabellen: `hotels`, `room_types`, `stays`, `photos`, `members`, `access_log`,
-`usage_counter`.
+`usage_counter`, `chain_hotels`, `chain_rooms`.
+
+`chain_hotels` und `chain_rooms` sind der **Vorrat**: Zimmerkategorien
+geschlüsselt nach der Kennung der Kette, unabhängig von der Hotelliste. Dort
+stehen auch Häuser, in denen niemand war. `verbindlicheListe` sieht zuerst dort
+nach — liegt das Haus im Vorrat, gibt es gar keinen Abruf nach außen.
 
 Erwähnenswerte Spalten:
 
@@ -306,3 +323,25 @@ Häuser ohne hilton.com-Adresse in der Datenbank haben keinen CTYHOCN und werden
 übersprungen; sie stehen am Ende in der Zusammenfassung.
 
 Einzelheiten in `bruecke/LIESMICH.md`.
+
+### Vorrat füllen
+
+`bruecke/vorrat.mjs`, ebenfalls über den Browser auf dem eigenen Rechner.
+
+Hilton teilt die Weltkarte in Quadranten. `hotelQuadrants` liefert alle
+Quadranten samt der enthaltenen Länder, `hotelSummaryOptions` je Quadrant alle
+Häuser darin — mit `ctyhocn`, Name, Marke, Stadt, Land und Koordinaten. Für
+Europa reichen 33 Abfragen; danach folgt je Haus die bekannte Zimmerabfrage.
+
+Beide laufen unter `appName=dx_shop_search_app`, die Zimmerabfrage unter
+`dx-property-ui`.
+
+Sortiert wird im Vorrat **nicht** vom Modell — das wäre bei hunderten Häusern zu
+langsam. Es gilt Hiltons eigene Einteilung (`guest`, `executive`, `suites`). Erst
+wenn ein Haus tatsächlich in stayLOG landet, sortiert das Modell einmalig.
+
+Tabellen vorher anlegen:
+
+```powershell
+npx wrangler d1 execute staylog --remote --file=.\migration-vorrat.sql
+```

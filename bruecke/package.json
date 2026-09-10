@@ -10,7 +10,8 @@
     "vorrat": "node vorrat.mjs",
     "vorrat-liste": "node vorrat.mjs --nur-liste",
     "erkunde": "node erkunde.mjs",
-    "ernte": "node ernte.mjs"
+    "ernte": "node ernte.mjs",
+    "radisson": "node radisson.mjs"
   },
   "dependencies": {
     "playwright": "^1.47.0"

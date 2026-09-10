@@ -1026,6 +1026,81 @@ function hiltonZimmerseite(hotel, ctyhocnVorgabe) {
 const MARRIOTT_MARKEN = /marriott|autograph|tribute|moxy|aloft|element|westin|sheraton|meridien|renaissance|courtyard|residence inn|fairfield|ac hotel|st\.? regis|luxury collection|w hotel|delta hotels/i;
 const HILTON_MARKEN = /hilton|doubletree|hampton|embassy suites|waldorf|conrad|canopy|curio|tapestry|tru by|homewood|home2|motto|signia|lxr|spark by/i;
 
+// ---------------------------------------------------------------- Radisson
+
+// Radisson laeuft auf Nuxt: Die Zimmer stehen im Zustand der Seite, nicht
+// hinter einer Abfrage. Die Bruecke schneidet die Objekte aus und schickt sie
+// her; bereinigt wird hier, wie bei Hilton auch.
+//
+// Je Zimmer: tmsRoomCode.key = "DEHAM1-BSTD------", .description = deutscher
+// Name, dazu size, metric, occupancy, text.description und bedType.
+// Die Bettvarianten fasst Radisson schon selbst zusammen – anders als Hilton.
+
+const RADISSON_RANG = { B: 0, S1: 0, P: 1, F: 1, S: 2, U: 3 };
+
+function radissonZimmerAusObjekten(objekte, quelleUrl) {
+  if (!Array.isArray(objekte) || !objekte.length) return null;
+
+  const zimmer = [];
+  const gesehen = new Set();
+
+  for (const r of objekte) {
+    const kennung = String(r?.tmsRoomCode?.key || '');
+    const name = String(r?.tmsRoomCode?.description || '').trim();
+    if (!name || name.length < 3) continue;
+
+    // Dieselbe Liste steht mehrfach im Zustand.
+    const schluessel = slug(name);
+    if (gesehen.has(schluessel)) continue;
+    gesehen.add(schluessel);
+
+    // "DEHAM1-PSUPRV----" -> Zimmerkuerzel PSUPRV, erster Buchstabe ist die Klasse.
+    const kuerzel = (kennung.split('-')[1] || '').replace(/-+$/, '');
+    const klasse = kuerzel.slice(0, 1).toUpperCase();
+
+    const betten = Array.isArray(r.bedType) ? r.bedType : (r.bedType ? [r.bedType] : []);
+    const bettText = betten
+      .map((b) => b?.type?.description || b?.type?.title)
+      .filter(Boolean)
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .join(' oder ') || null;
+
+    const text = String(r?.text?.description || '')
+      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+    const flaeche = /m²|m2/i.test(String(r.metric || '')) ? Number(r.size) : null;
+
+    zimmer.push({
+      name,
+      code: kuerzel || null,
+      description: text ? text.slice(0, 300) : null,
+      type: /suite/i.test(name) || klasse === 'U' ? 'suite' : 'room',
+      size_sqm: Number.isFinite(flaeche) && flaeche > 0 ? Math.round(flaeche) : null,
+      bed_type: bettText,
+      max_occupancy: Number(r?.occupancy?.maxAdults) || null,
+      gruppe: klasse || null,
+      source: 'official_chain_api',
+      source_url: quelleUrl,
+      confidence: 'high',
+    });
+  }
+
+  if (!zimmer.length) return null;
+
+  // Grobe Leiter aus Radissons eigener Klasseneinteilung.
+  return zimmer
+    .map((z, i) => ({ z, i }))
+    .sort((a, b) => (RADISSON_RANG[a.z.gruppe] ?? 1) - (RADISSON_RANG[b.z.gruppe] ?? 1) || a.i - b.i)
+    .map((e) => e.z);
+}
+
+// Die Zimmerseite eines Radisson-Hauses.
+function radissonZimmerseite(hotel) {
+  const adresse = String(hotel?.website || '');
+  if (!/radissonhotels\.com/i.test(adresse)) return null;
+  return adresse.replace(/\/+$/, '').replace(/\/(zimmer|rooms)$/i, '') + '/zimmer';
+}
+
 // Sucht die Kennung eines Hauses im Vorrat. Wer ein Hotel ueber die Ortssuche
 // anlegt, hat selten die Adresse der Kette dabei – ohne diesen Weg wuerde der
 // Vorrat gar nicht gefunden und die lange Recherche liefe unnoetig los.
@@ -1037,14 +1112,14 @@ function vergleichsname(name) {
     .replace(/\bhotel\b/gi, ' '));
 }
 
-async function vorratKennung(env, hotel) {
+async function vorratKennung(env, hotel, kette = 'hilton') {
   const stadt = (hotel.city || '').trim();
   const abfrage = stadt
-    ? `SELECT ctyhocn, name FROM chain_hotels WHERE kette = 'hilton' AND city LIKE ?`
-    : `SELECT ctyhocn, name FROM chain_hotels WHERE kette = 'hilton' AND name LIKE ?`;
+    ? `SELECT ctyhocn, name FROM chain_hotels WHERE kette = ? AND city LIKE ?`
+    : `SELECT ctyhocn, name FROM chain_hotels WHERE kette = ? AND name LIKE ?`;
   const wert = stadt ? stadt : '%' + String(hotel.name || '').slice(0, 14) + '%';
 
-  const rows = await env.DB.prepare(abfrage).bind(wert).all().catch(() => null);
+  const rows = await env.DB.prepare(abfrage).bind(kette, wert).all().catch(() => null);
   const ziel = vergleichsname(hotel.name);
   if (!ziel) return null;
 
@@ -1113,6 +1188,15 @@ async function verbindlicheListe(env, hotel) {
 
       const karten = await hiltonRoomTypes(hotel, ctyhocn).catch(() => null);
       if (karten) return karten;
+    }
+  }
+
+  if (kette.includes('radissonhotels.com') || hotel.program === 'Radisson Rewards'
+      || /radisson|park inn|park plaza|radisson blu|radisson red/i.test(marken)) {
+    const kennung = await vorratKennung(env, hotel, 'radisson').catch(() => null);
+    if (kennung) {
+      const vorrat = await vorratLesen(env, kennung).catch(() => null);
+      if (vorrat) return { ...vorrat, quelle: 'radisson-vorrat' };
     }
   }
 
@@ -1824,17 +1908,51 @@ async function ausVorratSpeichern(env, hotelId, hotel, karten) {
 
   befehle.push(env.DB.prepare(
     `UPDATE hotels SET enrich_status = 'ready', enrich_error = NULL, enriched_at = ?,
-            rank_reliable = ?, program = COALESCE(program, 'Hilton Honors'),
-            brand = COALESCE(brand, ?), chain = COALESCE(chain, 'Hilton'),
+            rank_reliable = ?, program = COALESCE(program, ?),
+            brand = COALESCE(brand, ?), chain = COALESCE(chain, ?),
             city = COALESCE(city, ?), country = COALESCE(country, ?),
             website = COALESCE(website, ?)
        WHERE id = ?`
   ).bind(
-    stamp, verlaesslich, stamm?.brand || null,
+    stamp, verlaesslich,
+    karten.quelle === 'radisson-vorrat' ? 'Radisson Rewards' : 'Hilton Honors',
+    stamm?.brand || null,
+    karten.quelle === 'radisson-vorrat' ? 'Radisson' : 'Hilton',
     stamm?.city || null, stamm?.country || null, stamm?.website || null, hotelId
   ));
 
   await env.DB.batch(befehle);
+}
+
+// Traegt nach, was der Vorrat nicht kennt: Beschreibung, Lounge, Fruehstueck,
+// Adresse. Die Zimmer bleiben unberuehrt – sie stammen aus amtlicher Quelle und
+// duerfen von einer Recherche nicht ueberschrieben werden.
+async function stammdatenNachtragen(env, hotelId, hotel) {
+  const result = await enrichHotel(env, hotel, null, null).catch(() => null);
+  if (!result || result.found === false) return;
+
+  await env.DB.prepare(
+    `UPDATE hotels SET
+       chain          = COALESCE(chain, ?),
+       brand          = COALESCE(brand, ?),
+       program        = COALESCE(program, ?),
+       lounge         = COALESCE(lounge, ?),
+       breakfast_note = COALESCE(breakfast_note, ?),
+       address        = COALESCE(address, ?),
+       description    = COALESCE(description, ?),
+       image_url      = COALESCE(image_url, ?)
+     WHERE id = ?`
+  ).bind(
+    result.chain || null,
+    result.brand || null,
+    result.program || null,
+    result.lounge === true ? 1 : result.lounge === false ? 0 : null,
+    result.breakfast_note || null,
+    result.address || null,
+    result.description || null,
+    result.image_url || null,
+    hotelId
+  ).run();
 }
 
 async function runEnrichment(env, hotelId) {
@@ -1857,8 +1975,11 @@ async function runEnrichment(env, hotelId) {
 
     // Kommt die Liste aus dem Vorrat, sind Name, Ort und Kategorien bereits
     // belegt. Dann braucht es keine Recherche mehr, nur noch die Reihenfolge.
-    if (karten?.quelle === 'hilton-vorrat') {
+    if (karten?.quelle === 'hilton-vorrat' || karten?.quelle === 'radisson-vorrat') {
+      // Erst die Zimmer, damit sie sofort dastehen. Beschreibung, Lounge und
+      // Fruehstueck liegen nicht im Vorrat – die kommen gleich hinterher.
       await ausVorratSpeichern(env, hotelId, hotel, karten);
+      await stammdatenNachtragen(env, hotelId, hotel).catch(() => null);
       return;
     }
 
@@ -2636,6 +2757,58 @@ export async function onRequest(context) {
       });
     }
 
+    // Radisson: die Bruecke schickt die Zimmerobjekte aus dem Seitenzustand.
+    if (path === '/chain/radisson' && method === 'POST') {
+      if (!isAdmin(env, user)) return fail('Nur fuer die Verwaltung', 403);
+
+      const koerper = await request.json().catch(() => ({}));
+      const info = koerper.info || {};
+      const kennung = String(info.code || '').toUpperCase();
+      if (!/^[A-Z0-9]{4,10}$/.test(kennung)) return fail('Kennung fehlt oder passt nicht', 400);
+
+      const quelle = info.website || null;
+      const zimmer = radissonZimmerAusObjekten(koerper.zimmer, quelle);
+      if (!zimmer) return fail('Keine Zimmerkategorien in den Objekten', 400);
+
+      const stamp = now();
+      const befehle = [
+        env.DB.prepare(
+          `INSERT INTO chain_hotels (ctyhocn, kette, name, brand, city, country, website, lat, lon, fetched_at)
+           VALUES (?, 'radisson', ?, ?, ?, ?, ?, NULL, NULL, ?)
+           ON CONFLICT(ctyhocn) DO UPDATE SET
+             name = excluded.name, brand = excluded.brand, city = excluded.city,
+             country = excluded.country, website = excluded.website,
+             fetched_at = excluded.fetched_at`
+        ).bind(
+          kennung, String(info.name || kennung), info.brand || null,
+          info.city || null, info.country || null, quelle, stamp
+        ),
+        env.DB.prepare('DELETE FROM chain_rooms WHERE ctyhocn = ?').bind(kennung),
+      ];
+
+      for (const [i, z] of zimmer.slice(0, 40).entries()) {
+        befehle.push(env.DB.prepare(
+          `INSERT INTO chain_rooms
+             (ctyhocn, name, rank, type, size_sqm, bed_type, max_occupancy,
+              description, code, gruppe, source_url, fetched_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(ctyhocn, name) DO UPDATE SET
+             rank = excluded.rank, type = excluded.type, size_sqm = excluded.size_sqm,
+             bed_type = excluded.bed_type, max_occupancy = excluded.max_occupancy,
+             description = excluded.description, code = excluded.code,
+             gruppe = excluded.gruppe, fetched_at = excluded.fetched_at`
+        ).bind(
+          kennung, z.name, i + 1, z.type, optionalNumber(z.size_sqm),
+          z.bed_type || null, optionalNumber(z.max_occupancy),
+          z.description || null, z.code || null, z.gruppe || null, quelle, stamp
+        ));
+      }
+
+      await env.DB.batch(befehle);
+      return json({ code: kennung, name: info.name || null, gespeichert: zimmer.length,
+                    namen: zimmer.map((z) => z.name) });
+    }
+
     // Nimmt ein Haus in den Vorrat auf. Die Bruecke schickt Stammdaten und die
     // Rohantwort; bereinigt wird hier, mit derselben Funktion wie sonst auch.
     if (path === '/chain/hilton' && method === 'POST') {
@@ -2704,7 +2877,9 @@ export async function onRequest(context) {
       if (!isAdmin(env, user)) return fail('Nur fuer die Verwaltung', 403);
 
       const kette = (url.searchParams.get('kette') || 'hilton').toLowerCase();
-      if (kette !== 'hilton') return fail('Unbekannte Kette: ' + kette, 400);
+      if (kette !== 'hilton' && kette !== 'radisson') {
+        return fail('Unbekannte Kette: ' + kette, 400);
+      }
 
       const alle = (url.searchParams.get('alle') || '') === '1';
 
@@ -2715,9 +2890,15 @@ export async function onRequest(context) {
            FROM hotels h ORDER BY h.name`
       ).all();
 
+      const istRadisson = kette === 'radisson';
       const haeuser = rows.results
         .filter((h) => {
           const marken = [h.name, h.brand, h.chain].filter(Boolean).join(' ');
+          if (istRadisson) {
+            return /radissonhotels\.com/i.test(h.website || '')
+              || h.program === 'Radisson Rewards'
+              || /radisson|park inn|park plaza/i.test(marken);
+          }
           return /hilton\.com/i.test(h.website || '')
             || h.program === 'Hilton Honors'
             || HILTON_MARKEN.test(marken);
@@ -2727,8 +2908,8 @@ export async function onRequest(context) {
           id: h.id,
           name: h.name,
           city: h.city,
-          ctyhocn: ctyhocnCode(h.website),
-          zimmerseite: hiltonZimmerseite(h),
+          ctyhocn: istRadisson ? null : ctyhocnCode(h.website),
+          zimmerseite: istRadisson ? radissonZimmerseite(h) : hiltonZimmerseite(h),
           amtlich: h.amtlich,
         }));
 

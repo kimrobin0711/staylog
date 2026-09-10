@@ -88,11 +88,15 @@ Hilton nicht. `bruecke/ernte.mjs` läuft diesen Weg, 563 Aufrufe für Europa.
 Lücken: fünf Vacation Clubs ohne Zimmerkategorien, Russland (keine Länderseite
 mehr), Türkei unvollständig (95 statt 108).
 
-**Offen: Radisson.** Dort liegen die Kategorien weder im HTML noch als
-schema.org-Block; die Liste wird ebenfalls per JSON nachgeladen. Die Abfrage
-ist noch nicht mitgeschnitten. Gleicher Weg: Zimmerseite öffnen,
-Entwicklerwerkzeuge, HAR mitschneiden. Die Brücke bekommt Radisson dann als
-zweite Kette dazu.
+**Radisson: gebaut.** Läuft auf Nuxt, die Zimmer stehen in `window.__NUXT__`.
+`bruecke/radisson.mjs` öffnet die Zimmerseite und liest sie aus, ganz ohne
+Abfrage. Die Hauskennung (`DEHAM1`) steht nur im Zustand, nicht in der Adresse.
+Bereinigung ist kaum nötig — Bettvarianten fasst Radisson selbst zusammen.
+Gegen Hamburg geprüft: 18 Rohobjekte werden zu 9 Kategorien.
+
+Noch nicht im Betrieb erprobt. Ein Vorrat für ganze Regionen fehlt ebenfalls —
+bei Radisson kostet jedes Haus einen Seitenaufruf, es gibt keine Sammelabfrage
+wie bei Hiltons Standortseiten.
 
 ---
 

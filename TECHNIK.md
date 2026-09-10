@@ -82,6 +82,7 @@ Alle unter `/api/`. Anmeldung über die Kopfzeilen `x-stay-pass` und
 | `/hotels/:id/import` | POST | Nimmt die Rohantwort der Brücke entgegen, bereinigt, sortiert, speichert. Nur Verwaltung |
 | `/chain/bekannt?kette=hilton` | GET | Welche Kennungen liegen im Vorrat. Nur Verwaltung |
 | `/chain/hilton` | POST | Nimmt ein Haus in den Vorrat auf. Nur Verwaltung |
+| `/chain/radisson` | POST | Nimmt ein Radisson-Haus in den Vorrat auf. Nur Verwaltung |
 | `/hotels/unstick` | POST | hängende Läufe freigeben |
 
 ### Aufenthalte
@@ -247,6 +248,13 @@ nur ohne den jeweiligen Dienst. Der Stand steht im Verwaltungsbereich.
 Tabellen: `hotels`, `room_types`, `stays`, `photos`, `members`, `access_log`,
 `usage_counter`, `chain_hotels`, `chain_rooms`.
 
+Liegt ein Haus im Vorrat, läuft die Anreicherung zweistufig: Zuerst werden die
+Zimmer gespeichert und der Zustand auf `ready` gesetzt — sie stehen also sofort
+zur Auswahl. Danach trägt `stammdatenNachtragen` nach, was der Vorrat nicht
+kennt: Beschreibung, Lounge, Frühstück, Adresse. Die Zimmer bleiben dabei
+unberührt; sie stammen aus amtlicher Quelle und dürfen von einer Recherche
+nicht überschrieben werden.
+
 `chain_hotels` und `chain_rooms` sind der **Vorrat**: Zimmerkategorien
 geschlüsselt nach der Kennung der Kette, unabhängig von der Hotelliste. Dort
 stehen auch Häuser, in denen niemand war. `verbindlicheListe` sieht zuerst dort
@@ -374,3 +382,40 @@ die Kategorien stehen im HTML jeder Zimmerseite.
 Vacation Clubs ohne `roomTypes` sowie Russland, dessen Länderseite Hilton
 nicht mehr führt. Die Türkei ist unvollständig (95 statt 108) — dort sind
 Häuser in Städten, die die Länderseite nicht verlinkt.
+
+---
+
+## 9. Radisson
+
+Radisson läuft auf Nuxt statt Next.js. Die Zimmer stehen in `window.__NUXT__`,
+nicht hinter einer Abfrage — es wird also **keine Schnittstelle aufgerufen**,
+`bruecke/radisson.mjs` öffnet die Zimmerseite und liest den Zustand.
+
+Je Zimmer:
+
+| Feld | Inhalt |
+|---|---|
+| `tmsRoomCode.key` | `DEHAM1-PSUPRV----` — Hauskennung und Zimmerkürzel |
+| `tmsRoomCode.description` | deutscher Name |
+| `size` + `metric` | Fläche, meist in m² |
+| `occupancy.maxAdults` | Belegung |
+| `bedType[]` | Bettarten, von Radisson **bereits zusammengefasst** |
+| `text.description` | Beschreibung |
+
+Die Hauskennung (`DEHAM1`) steht nicht in der Adresse, sondern nur im Zustand.
+Sie wird beim Einlesen mitgenommen und dient als Schlüssel im Vorrat.
+
+Anders als bei Hilton ist kaum Bereinigung nötig: Bettvarianten führt Radisson
+nicht als eigene Kategorien. Es bleibt das Entdoppeln — dieselbe Liste steht
+mehrfach im Zustand — und die Klasseneinteilung aus dem ersten Buchstaben des
+Kürzels: B, P, F, S, U.
+
+Hamburg: 18 Rohobjekte werden zu 9 Kategorien, von „Standard Zimmer" bis
+„Präsidenten Suite".
+
+```powershell
+cd bruecke
+node radisson.mjs --trocken
+node radisson.mjs
+node radisson.mjs --datei adressen.txt
+```

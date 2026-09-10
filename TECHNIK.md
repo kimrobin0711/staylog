@@ -162,8 +162,11 @@ folgt automatisch die Fassung, die die Seite selbst schickt
 
 Hilton führt jede Bettvariante als eigene Kategorie. `hiltonRoomName`
 schneidet „mit King-Size-Bett" ab, setzt „Zweibettzimmer" auf „Zimmer" und
-entfernt den angehängten Loungezugang („– Zutritt zur Lounge"), der ohnehin
-schon in der Kategorie steckt. Die Bettarten landen mit „oder" verbunden im
+entfernt den angehängten Loungezugang, der ohnehin schon in der Kategorie
+steckt. Der hängt an allem — Gedankenstrich, Komma, „und", „mit": „Executive
+Zimmer und Zugang zur Lounge", „Präsidenten Suite mit Zugang zur Lounge",
+„Junior Suite - Zutritt zur Lounge". Die Reihenfolge zählt: erst der
+Loungezusatz, sonst steht die Bettart nicht mehr am Ende. Die Bettarten landen mit „oder" verbunden im
 Feld `bed_type`.
 
 `hiltonSchluessel` gleicht zusätzlich die Schreibweisen des Ausblicks an:
@@ -332,6 +335,20 @@ Häuser ohne hilton.com-Adresse in der Datenbank haben keinen CTYHOCN und werden
 übersprungen; sie stehen am Ende in der Zusammenfassung.
 
 Einzelheiten in `bruecke/LIESMICH.md`.
+
+### Wer die Bereinigung ändert, muss den Vorrat nachziehen
+
+`vorrat.mjs` überspringt alles, was schon im Vorrat liegt. Nach jeder Änderung
+an `hiltonRoomName` oder `hiltonSchluessel` bleiben die vorhandenen Häuser
+deshalb stillschweigend bei den alten Namen — der Fehler zeigt sich erst, wenn
+jemand ein Hotel anlegt. Danach also immer:
+
+```powershell
+node vorrat.mjs --neu
+```
+
+Und prüfen, ob die geänderte Regel wirklich überall gegriffen hat, statt nur
+an dem Haus, an dem sie entwickelt wurde.
 
 ### Vorrat füllen
 

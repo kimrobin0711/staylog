@@ -873,15 +873,34 @@ async function hiltonAbfrage(ctyhocn, verweis, kurz) {
 // Der Loungezugang haengt bei Hilton als Zusatz hinten dran ("Executive Zimmer
 // - Zutritt zur Lounge"). Er steckt schon in der Kategorie und wuerde sie sonst
 // doppeln.
-const HILTON_LOUNGE = /\s*[-–—]\s*(?:zutritt|zugang)\s+zur\s+[^-–—]*lounge[^-–—]*$/i;
-const HILTON_LOUNGE_EN = /\s*[-–—]\s*(?:executive\s+)?lounge\s+access\s*$/i;
+// Der Zusatz haengt an allem: Gedankenstrich, Komma, "und", "mit" – oder an
+// gar nichts. "Executive Zimmer und Zugang zur Lounge", "Praesidenten Suite mit
+// Zugang zur Lounge", "Junior Suite - Zutritt zur Lounge".
+const HILTON_LOUNGE =
+  /\s*(?:[,–—-]\s*)?(?:und\s+|mit\s+)?(?:zutritt|zugang)\s+zur\s+[^,]*lounge[^,]*\s*$/i;
+const HILTON_LOUNGE_EN =
+  /\s*(?:[,–—-]\s*)?(?:with\s+)?(?:executive\s+)?lounge\s+access\s*$/i;
+
+// Bettart als letzter Teil nach einem Komma: "Suite mit einem Schlafzimmer,
+// Kingsize-Bett". Die Form mit "mit" faengt die Regel darunter ab.
+const HILTON_BETT_KOMMA = /,\s*(?:\d+\s+)?[^,]*?bett(?:en)?\s*$/i;
 
 function hiltonRoomName(name) {
+  // Reihenfolge zaehlt: erst der Loungezusatz, sonst steht die Bettart nicht
+  // mehr am Ende und wird nicht erkannt.
   let sauber = name.replace(HILTON_LOUNGE, '').replace(HILTON_LOUNGE_EN, '');
 
   const treffer = (sauber.match(/\s+mit\s+[^,]*?bett(?:en)?\b/i) || [])[0];
   let bett = treffer ? treffer.replace(/^\s*mit\s+/i, '').trim() : null;
   sauber = sauber.replace(/\s+mit\s+[^,]*?bett(?:en)?\b/i, '');
+
+  if (!bett) {
+    const komma = (sauber.match(HILTON_BETT_KOMMA) || [])[0];
+    if (komma) {
+      bett = komma.replace(/^,\s*/, '').trim();
+      sauber = sauber.replace(HILTON_BETT_KOMMA, '');
+    }
+  }
 
   if (/Zweibettzimmer/i.test(sauber)) bett = bett || 'Zwei Einzelbetten';
   sauber = sauber.replace(/Zweibettzimmer/gi, 'Zimmer');

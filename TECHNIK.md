@@ -281,7 +281,8 @@ npx wrangler d1 execute staylog --remote --file=.\migration-name.sql
   GraphQL-Abfrage mit `HTTP 200, text/html, "Success"` — die Anfrage kommt am
   Server nie an. Der Browserdienst hilft nicht: Cloudflare weist ihn laut eigener
   Dokumentation über nicht änderbare Kopfzeilen als Bot aus. Deshalb die Brücke
-  (Abschnitt 8).
+  (Abschnitt 8). In der Praxis spielt das kaum noch eine Rolle — der Vorrat
+  deckt Europa ab, ein neu angelegtes Haus wird ohne Netzzugriff bedient.
 - **Marriott-Zimmerseiten** laden ihre Liste erst bei einer
   Verfügbarkeitsabfrage; die offene Abfrage umgeht das.
 - **Playwright** funktioniert in Pages Functions nicht (`fs.mkdtemp` fehlt).
@@ -345,3 +346,31 @@ Tabellen vorher anlegen:
 ```powershell
 npx wrangler d1 execute staylog --remote --file=.\migration-vorrat.sql
 ```
+
+### Was im HTML der Seiten steht
+
+Die entscheidende Erkenntnis vom 10.9.: Hiltons Seiten liefern ihre Daten im
+Dokument mit, in `<script id="__NEXT_DATA__">`. Es braucht dafür **keinen
+Aufruf an die Schnittstelle**.
+
+| Seite | Fundstelle | Inhalt |
+|---|---|---|
+| Zimmerseite | `props.pageProps.hotelRoomsSchema` | alle Kategorien mit Beschreibung, Bettart, Bildern |
+| Zimmerseite | `props.pageProps.hotelRoomTypeCategories` | Einteilung guest / executive / suites |
+| Standortseite | `pageData.hotelSummaryOptions.hotels` | bis zu 20 Häuser mit Kennung, Marke, Ort, Koordinaten |
+| Standortseite | `pageData.location.pageInterlinks` | Verweise auf alle Städte des Landes |
+
+Das ist der Grund, warum die Ernte funktioniert, obwohl Hilton die Abfrage
+`hotelSummaryOptions` gesperrt hat: Seitenaufrufe sind nicht gedrosselt.
+
+Sollte irgendwann auch die Zimmerabfrage fallen, liegt der Rückweg bereit —
+die Kategorien stehen im HTML jeder Zimmerseite.
+
+`bruecke/erkunde.mjs` zeigt für eine beliebige Seite, was sie mitbringt.
+
+### Stand des Vorrats
+
+938 europäische Häuser, 7.623 Kategorien (10.9.2026). Nicht erfasst: fünf
+Vacation Clubs ohne `roomTypes` sowie Russland, dessen Länderseite Hilton
+nicht mehr führt. Die Türkei ist unvollständig (95 statt 108) — dort sind
+Häuser in Städten, die die Länderseite nicht verlinkt.

@@ -1,6 +1,6 @@
 # stayLOG — Übergabe an einen neuen Chat
 
-Stand: 9. September 2026
+Stand: 10. September 2026
 
 ---
 
@@ -73,11 +73,20 @@ Browserdienst hilft auch nicht, Cloudflare weist ihn laut eigener Dokumentation
 **Brücke** in `bruecke/`: ein echter Browser auf dem eigenen Rechner, einmal
 angemeldet, dann alle Häuser hintereinander. Siehe `TECHNIK.md`, Abschnitt 8.
 
-**Vorrat.** `bruecke/vorrat.mjs` legt die Kategorien ganzer Regionen an, auch
-für Häuser, in denen niemand war. Sie liegen in `chain_hotels`/`chain_rooms`,
-geschlüsselt nach Kennung, getrennt von der Hotelliste. Trägt jemand später ein
-Hilton ein, sind die Kategorien sofort da — ohne Abruf. Europa sind rund 900
-Häuser und etwa eine halbe Stunde.
+**Vorrat: erledigt.** 938 europäische Hilton-Häuser mit 7.623 Kategorien liegen
+in `chain_hotels`/`chain_rooms`, geschlüsselt nach Kennung, getrennt von der
+Hotelliste. Wer ein europäisches Hilton anlegt, hat die Kategorien in Sekunden —
+ohne Recherche, ohne Netzzugriff, ohne dass ein Rechner laufen muss. Gefunden
+wird das Haus über die Kennung aus der Adresse oder über Name und Stadt.
+
+Der Weg dorthin, weil er nicht naheliegt: Hilton hat die Suchabfrage
+`hotelSummaryOptions` nach dem ersten Durchlauf gesperrt. Die Häuser kommen
+seitdem aus dem **Seitenzustand** — `__NEXT_DATA__` jeder Standortseite trägt
+ihre Hotels und die Verweise auf alle Städte des Landes. Seitenaufrufe drosselt
+Hilton nicht. `bruecke/ernte.mjs` läuft diesen Weg, 563 Aufrufe für Europa.
+
+Lücken: fünf Vacation Clubs ohne Zimmerkategorien, Russland (keine Länderseite
+mehr), Türkei unvollständig (95 statt 108).
 
 **Offen: Radisson.** Dort liegen die Kategorien weder im HTML noch als
 schema.org-Block; die Liste wird ebenfalls per JSON nachgeladen. Die Abfrage

@@ -885,6 +885,12 @@ function hiltonRoomName(name) {
 
   if (/Zweibettzimmer/i.test(sauber)) bett = bett || 'Zwei Einzelbetten';
   sauber = sauber.replace(/Zweibettzimmer/gi, 'Zimmer');
+
+  // Steht die Bettart hinten als eigener Teil ("Barrierefreies Zimmer –
+  // Zweibettzimmer"), bleibt nach dem Ersetzen ein leeres "– Zimmer" stehen.
+  // Ein Gedankenstrich mit nichts als "Zimmer" dahinter sagt ohnehin nichts.
+  sauber = sauber.replace(/\s*[-–—]\s*Zimmer\s*$/i, '');
+
   sauber = sauber.replace(/\s{2,}/g, ' ').replace(/\s+,/g, ',').trim();
   return { name: sauber.length >= 3 ? sauber : name.trim(), bett };
 }

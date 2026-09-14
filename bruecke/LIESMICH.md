@@ -222,3 +222,51 @@ Danach wie gehabt:
 ```powershell
 node vorrat.mjs
 ```
+
+---
+
+## Radisson
+
+`radisson.mjs` öffnet die Zimmerseite und liest `window.__NUXT__` — auch hier
+ohne Aufruf an eine Schnittstelle.
+
+```powershell
+node radisson.mjs --trocken
+node radisson.mjs
+node radisson.mjs --tempo 60000     # Pause zwischen Häusern in ms
+node radisson.mjs --datei adressen.txt
+```
+
+**Radisson sperrt bei zu vielen Aufrufen kurz hintereinander** („Your access
+has been restricted"). Deshalb 25 Sekunden Grundpause, deutlich mehr als bei
+Hilton. Erkennt das Skript die Sperrseite, bricht es ab, statt weiter dagegen
+zu laufen — das würde die Sperre nur verlängern.
+
+### Takt
+
+Gewartet wird nur nach einem echten Abruf. Übersprungene und
+zwischengespeicherte Häuser kosten keine Zeit.
+
+| Fall | Verhalten |
+|---|---|
+| schon gespeichert | `SKIP` — sofort weiter |
+| aus dem Zwischenspeicher | `CACHE` — kein Abruf, keine Pause |
+| Abruf erfolgreich | `WAIT 12s – normal`, über `--tempo` einstellbar |
+| HTTP 200, keine Zimmer | vermerken, kein erneuter Versuch |
+| HTTP 403 / 429 / Sperrseite | `Retry-After` auswerten, sonst 60 s, dann 180 s |
+| zweite Sperre im Lauf | `ABBRUCH` |
+
+Der Zwischenspeicher liegt in `cache/radisson/`. Damit lassen sich Änderungen
+am Parser prüfen, ohne Radisson erneut anzufragen. `--frisch` umgeht ihn.
+
+Ein gesperrtes Haus beendet den Lauf nicht sofort: Es wird als `GESPERRT`
+vermerkt, es folgt die Schonfrist, dann geht es weiter. Bei der zweiten Sperre
+im selben Lauf wird abgebrochen, statt weiter anzuklopfen.
+
+Die Sperre trifft nur den gesteuerten Browser — im normalen Fenster ist die
+Seite weiter erreichbar. Mal kommt ein Aufruf durch, mal nicht. Ein erneuter
+Lauf holt die offenen Häuser nach; die erledigten werden übersprungen.
+
+```powershell
+node radisson.mjs --tempo 120000
+```

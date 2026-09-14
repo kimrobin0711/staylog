@@ -83,6 +83,8 @@ Alle unter `/api/`. Anmeldung über die Kopfzeilen `x-stay-pass` und
 | `/chain/bekannt?kette=hilton` | GET | Welche Kennungen liegen im Vorrat. Nur Verwaltung |
 | `/chain/hilton` | POST | Nimmt ein Haus in den Vorrat auf. Nur Verwaltung |
 | `/chain/radisson` | POST | Nimmt ein Radisson-Haus in den Vorrat auf. Nur Verwaltung |
+| `/chain/marriott` | POST | Nimmt bis zu 30 Marriott-Häuser in den Vorrat auf, holt die Kategorien selbst. Nur Verwaltung |
+| `/chain/marriott/probe` | POST | Probelauf ohne Speichern: hält `roomCards` das Tempo aus? Nur Verwaltung |
 | `/hotels/unstick` | POST | hängende Läufe freigeben |
 
 ### Aufenthalte
@@ -136,6 +138,26 @@ Die Antwort ist GraphQL: `data.property.roomTypes.edges[].node` mit `name`,
 wir Name, Beschreibung, Zimmercode, Größe, Bettentyp und Belegung.
 
 Nötig sind eine Browser-Kennung und eine `referer`-Kopfzeile.
+
+**Marriott, Bereinigung.** `marriottRoomName` ergänzt `canonicalRoomName` um
+die Formen ohne Komma, die Marriott ebenfalls benutzt:
+
+| Eingang | Ergebnis |
+|---|---|
+| Deluxe Zimmer mit Kingsize-Bett / mit Doppelbett | Deluxe Zimmer |
+| Deluxe Zimmer mit Kingsize-Bett und Meerblick | Deluxe Zimmer mit Meerblick |
+| Executive Kingzimmer / Executive Doppelzimmer | Executive Zimmer |
+| Classic Kingsize / Classic Doppel | Classic |
+| Windowless, Hearing Accessible, Mobility Accessible … | verworfen |
+
+Die letzte Zeile ist wichtig: Marriott liefert bei manchen Häusern
+Barrierefreiheits- und Ausstattungsmerkmale als eigene „Zimmer". Daraus lässt
+sich keine Upgrade-Leiter bauen, also fallen sie weg — bleiben dann unter drei
+Kategorien übrig, wird gar nichts gespeichert.
+
+`bettSaeubern` filtert zusätzlich das Feld `bed_type`: Marriott packt dort bei
+manchen Häusern die ganze Ausstattungsliste hinein („Bathrooms: 1, Mini fridge,
+190sqft/18sqm, Air-conditioned …"). Übrig bleiben nur echte Bettangaben.
 
 **Stufe 1b — Hilton, offene Abfrage.** Gleiche Rolle wie bei Marriott.
 

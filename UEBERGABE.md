@@ -94,7 +94,12 @@ Abfrage. Die Hauskennung (`DEHAM1`) steht nur im Zustand, nicht in der Adresse.
 Bereinigung ist kaum nötig — Bettvarianten fasst Radisson selbst zusammen.
 Gegen Hamburg geprüft: 18 Rohobjekte werden zu 9 Kategorien.
 
-Noch nicht im Betrieb erprobt. Ein Vorrat für ganze Regionen fehlt ebenfalls —
+Im Betrieb zeigte sich: **Radisson sperrt gesteuerte Browser bei zu vielen
+Aufrufen kurz hintereinander** („Your access has been restricted ... automated
+detection"). Einzelne Aufrufe gehen durch, sechs hintereinander nicht. Die
+Brücke wartet deshalb 25 Sekunden je Haus und bricht ab, sobald sie die
+Sperrseite erkennt. Am Erkennungsmechanismus vorbeizubauen wäre das Aushebeln
+einer Schutzmaßnahme und ist bewusst unterlassen. Ein Vorrat für ganze Regionen fehlt ebenfalls —
 bei Radisson kostet jedes Haus einen Seitenaufruf, es gibt keine Sammelabfrage
 wie bei Hiltons Standortseiten.
 

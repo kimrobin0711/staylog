@@ -621,6 +621,55 @@ const SCHLAFRAUM = /^\s*\d+\s*schlafzimmer\s*:/i;
 const LOUNGE = /^(zugang zur|access to|zugang)/i;
 const AUSBLICK = /(blick|view|aussicht|balkon|terrasse|balcony|terrace)/i;
 
+// Bettarten, die Marriott an den Namen haengt statt sie als Merkmal zu fuehren.
+const BETT_ANHANG =
+  /[\s-]+(?:mit\s+)?(?:\d+\s+)?(?:king|queen|twin|doppel|einzel|sofa)(?:size)?[a-zä-ü]*(?:-?bett(?:en)?)?\s*$/i;
+
+// "Kingzimmer", "Doppelzimmer", "Zweibettzimmer" – die Bettart steckt im Wort.
+const BETT_IM_WORT =
+  /\b(?:king|queen|twin|doppel|einzel|zweibett)(?:size)?[a-zä-ü]*zimmer\b/gi;
+
+// "... mit Kingsize-Bett und Meerblick": die Bettart steht mittendrin, der
+// Ausblick dahinter bleibt erhalten.
+const BETT_MITTE =
+  /\s+mit\s+(?:\d+\s+)?(?:king|queen|twin|doppel|einzel|sofa)(?:size)?[a-zä-ü]*-?bett(?:en)?\s+und\s+/i;
+
+// Barrierefreiheit und Ausstattung sind Merkmale, keine Kategorien. Marriott
+// liefert sie bei manchen Haeusern als eigene "Zimmer" – daraus laesst sich
+// keine Upgrade-Leiter bauen.
+const KEIN_ZIMMER =
+  /^(?:mobility|hearing|windowless|work station|hydrotherapy|accessible|roll-in)/i;
+
+// Nur echte Bettangaben, kein Ausstattungstext.
+const BETT_WORT = /\b(bett|betten|king|queen|twin|double|einzel|sofa)\b/i;
+
+function bettSaeubern(text) {
+  if (!text) return null;
+  const teile = String(text).split(',').map((t) => t.trim())
+    .filter((t) => t && BETT_WORT.test(t) && t.length < 40);
+  const eindeutig = [...new Set(teile)];
+  return eindeutig.length ? eindeutig.join(', ').slice(0, 120) : null;
+}
+
+// Marriott haengt die Bettvariante oft an den Namen: "Deluxe Zimmer mit
+// Kingsize-Bett" und "Deluxe Zimmer mit Doppelbett" sind dieselbe Kategorie,
+// ebenso "Classic Kingsize" und "Classic Doppel".
+function marriottRoomName(name) {
+  let sauber = canonicalRoomName(String(name || '').trim());
+
+  sauber = sauber.replace(BETT_MITTE, ' mit ');
+  sauber = sauber.replace(BETT_IM_WORT, 'Zimmer');
+
+  // Nur abschneiden, wenn danach noch etwas Brauchbares uebrig bleibt.
+  const gekuerzt = sauber.replace(BETT_ANHANG, '').trim();
+  if (gekuerzt.length >= 4) sauber = gekuerzt;
+
+  // Durch das Kuerzen kann "Signature Suite Suite" entstehen.
+  sauber = sauber.replace(/\b(\w+)(\s+\1)+\b/gi, '$1');
+
+  return sauber.replace(/[\s-]+$/, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 function canonicalRoomName(name) {
   if (!name.includes(',')) return name;   // Form "Zimmer mit Kingsize-Bett" unangetastet
 
@@ -685,14 +734,18 @@ async function marriottRoomCards(hotel, marshaVorgabe) {
     // "1 Queensize-Bett, Standard Zimmer" und "2 Einzelbetten, Standard Zimmer".
     // Fuer die Upgrade-Leiter ist das eine Kategorie. Der Ausblick dagegen
     // bleibt eigenstaendig, der ist eine echte Aufwertung.
-    const sauber = canonicalRoomName(k.name.trim());
+    const sauber = marriottRoomName(k.name);
+    if (!sauber || KEIN_ZIMMER.test(sauber)) continue;   // Merkmal, keine Kategorie
     const schluessel = slug(sauber);
 
     if (nachName.has(schluessel)) {
       // Schon vorhanden: nur die Bettarten ergaenzen.
       const vorhanden = nachName.get(schluessel);
-      if (bett && vorhanden.bed_type && !vorhanden.bed_type.includes(bett)) {
-        vorhanden.bed_type += ' oder ' + bett;
+      const neuBett = bettSaeubern(bett);
+      if (neuBett && vorhanden.bed_type && !vorhanden.bed_type.includes(neuBett)) {
+        vorhanden.bed_type += ' oder ' + neuBett;
+      } else if (neuBett && !vorhanden.bed_type) {
+        vorhanden.bed_type = neuBett;
       }
       continue;
     }
@@ -703,7 +756,7 @@ async function marriottRoomCards(hotel, marshaVorgabe) {
       description: k.description || null,
       type: istSuite ? 'suite' : 'room',
       size_sqm: groesse,
-      bed_type: bett,
+      bed_type: bettSaeubern(bett),
       max_occupancy: k.maxOccupancy || null,
       source: 'official_chain_api',
       source_url: url,
@@ -1064,8 +1117,10 @@ function radissonZimmerAusObjekten(objekte, quelleUrl) {
   const gesehen = new Set();
 
   for (const r of objekte) {
+    // Aus dem Seitenzustand kommt ein volles Objekt, aus dem sichtbaren Baum
+    // oder aus strukturierten Daten nur ein Name. Beides ist zulaessig.
     const kennung = String(r?.tmsRoomCode?.key || '');
-    const name = String(r?.tmsRoomCode?.description || '').trim();
+    const name = String(r?.tmsRoomCode?.description || r?.name || '').trim();
     if (!name || name.length < 3) continue;
 
     // Dieselbe Liste steht mehrfach im Zustand.
@@ -1187,8 +1242,15 @@ async function verbindlicheListe(env, hotel) {
   const marken = [hotel.name, hotel.brand, hotel.chain].filter(Boolean).join(' ');
 
   if (kette.includes('marriott.com') || hotel.program === 'Marriott Bonvoy' || MARRIOTT_MARKEN.test(marken)) {
-    const marsha = marshaCode(hotel.website) || await findMarriottPage(hotel).catch(() => null);
+    const marsha = marshaCode(hotel.website)
+      || await vorratKennung(env, hotel, 'marriott').catch(() => null)
+      || await findMarriottPage(hotel).catch(() => null);
+
     if (marsha) {
+      // Erst der Vorrat – dann braucht es nicht einmal den Abruf.
+      const vorrat = await vorratLesen(env, marsha).catch(() => null);
+      if (vorrat) return { ...vorrat, quelle: 'marriott-vorrat' };
+
       const karten = await marriottRoomCards(hotel, marsha).catch(() => null);
       if (karten) return karten;
     }
@@ -1934,9 +1996,10 @@ async function ausVorratSpeichern(env, hotelId, hotel, karten) {
        WHERE id = ?`
   ).bind(
     stamp, verlaesslich,
-    karten.quelle === 'radisson-vorrat' ? 'Radisson Rewards' : 'Hilton Honors',
+    { 'radisson-vorrat': 'Radisson Rewards', 'marriott-vorrat': 'Marriott Bonvoy' }[karten.quelle]
+      || 'Hilton Honors',
     stamm?.brand || null,
-    karten.quelle === 'radisson-vorrat' ? 'Radisson' : 'Hilton',
+    { 'radisson-vorrat': 'Radisson', 'marriott-vorrat': 'Marriott' }[karten.quelle] || 'Hilton',
     stamm?.city || null, stamm?.country || null, stamm?.website || null, hotelId
   ));
 
@@ -1994,7 +2057,7 @@ async function runEnrichment(env, hotelId) {
 
     // Kommt die Liste aus dem Vorrat, sind Name, Ort und Kategorien bereits
     // belegt. Dann braucht es keine Recherche mehr, nur noch die Reihenfolge.
-    if (karten?.quelle === 'hilton-vorrat' || karten?.quelle === 'radisson-vorrat') {
+    if (String(karten?.quelle || '').endsWith('-vorrat')) {
       // Erst die Zimmer, damit sie sofort dastehen. Beschreibung, Lounge und
       // Fruehstueck liegen nicht im Vorrat – die kommen gleich hinterher.
       await ausVorratSpeichern(env, hotelId, hotel, karten);
@@ -2773,6 +2836,149 @@ export async function onRequest(context) {
         bekannt: rows.results
           .filter((r) => r.kategorien > 0)
           .map((r) => ({ ctyhocn: r.ctyhocn, seit: r.fetched_at, kategorien: r.kategorien })),
+      });
+    }
+
+    // Nimmt einen Block Marriott-Haeuser in den Vorrat auf. Der Server holt die
+    // Kategorien selbst – bei Marriott braucht es keine Bruecke.
+    if (path === '/chain/marriott' && method === 'POST') {
+      if (!isAdmin(env, user)) return fail('Nur fuer die Verwaltung', 403);
+
+      const koerper = await request.json().catch(() => ({}));
+      const eingang = (Array.isArray(koerper.haeuser) ? koerper.haeuser : [])
+        .map((h) => ({
+          code: String(h?.code || '').toUpperCase(),
+          slug: String(h?.slug || '').trim(),
+        }))
+        .filter((h) => /^[A-Z0-9]{5}$/.test(h.code))
+        .slice(0, 30);
+      if (!eingang.length) return fail('Keine brauchbaren MARSHA-Kennungen', 400);
+
+      const takt = Math.min(Math.max(Number(koerper.takt) || 800, 200), 5000);
+      const erneuern = koerper.erneuern === true;
+
+      // Was schon im Vorrat liegt, wird nicht noch einmal geholt.
+      let bekannt = new Set();
+      if (!erneuern) {
+        const rows = await env.DB.prepare(
+          `SELECT ctyhocn FROM chain_hotels WHERE kette = 'marriott'`
+        ).all().catch(() => ({ results: [] }));
+        bekannt = new Set(rows.results.map((r) => r.ctyhocn));
+      }
+
+      const stamp = now();
+      const bericht = [];
+      let gespeichert = 0;
+      let uebersprungen = 0;
+
+      for (const [i, haus] of eingang.entries()) {
+        if (bekannt.has(haus.code)) {
+          uebersprungen += 1;
+          continue;
+        }
+        if (i) await new Promise((f) => setTimeout(f, takt));
+
+        const karten = await marriottRoomCards({ website: null }, haus.code).catch(() => null);
+        const zimmer = karten?.zimmer || [];
+
+        if (zimmer.length < 3) {
+          bericht.push({ code: haus.code, zimmer: zimmer.length, gespeichert: false });
+          continue;
+        }
+
+        // Aus dem Slug wird der Name: hamburg-marriott-hotel -> Hamburg Marriott Hotel
+        const name = haus.slug
+          ? haus.slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+          : haus.code;
+        const adresse = haus.slug
+          ? 'https://www.marriott.com/de/hotels/' + haus.code.toLowerCase() + '-' + haus.slug + '/overview/'
+          : null;
+
+        const befehle = [
+          env.DB.prepare(
+            `INSERT INTO chain_hotels (ctyhocn, kette, name, brand, city, country, website, lat, lon, fetched_at)
+             VALUES (?, 'marriott', ?, NULL, NULL, NULL, ?, NULL, NULL, ?)
+             ON CONFLICT(ctyhocn) DO UPDATE SET
+               name = excluded.name, website = excluded.website, fetched_at = excluded.fetched_at`
+          ).bind(haus.code, name, adresse, stamp),
+          env.DB.prepare('DELETE FROM chain_rooms WHERE ctyhocn = ?').bind(haus.code),
+        ];
+
+        for (const [j, z] of zimmer.slice(0, 40).entries()) {
+          befehle.push(env.DB.prepare(
+            `INSERT INTO chain_rooms
+               (ctyhocn, name, rank, type, size_sqm, bed_type, max_occupancy,
+                description, code, gruppe, source_url, fetched_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+             ON CONFLICT(ctyhocn, name) DO UPDATE SET
+               rank = excluded.rank, type = excluded.type, size_sqm = excluded.size_sqm,
+               bed_type = excluded.bed_type, max_occupancy = excluded.max_occupancy,
+               description = excluded.description, fetched_at = excluded.fetched_at`
+          ).bind(
+            haus.code, z.name, j + 1, z.type === 'suite' ? 'suite' : 'room',
+            optionalNumber(z.size_sqm), z.bed_type || null, optionalNumber(z.max_occupancy),
+            z.description || null, karten.url || null, stamp
+          ));
+        }
+
+        await env.DB.batch(befehle);
+        gespeichert += 1;
+        bericht.push({ code: haus.code, name, zimmer: zimmer.length, gespeichert: true });
+      }
+
+      return json({
+        eingang: eingang.length,
+        gespeichert,
+        uebersprungen,
+        ohne_liste: bericht.filter((b) => !b.gespeichert).map((b) => b.code),
+        bericht,
+      });
+    }
+
+    // Probelauf: Haelt Marriotts offene Abfrage mehrere Aufrufe hintereinander
+    // aus Cloudflare aus? Das entscheidet, ob ein Vorrat ohne Bruecke moeglich
+    // ist. Speichert nichts.
+    if (path === '/chain/marriott/probe' && method === 'POST') {
+      if (!isAdmin(env, user)) return fail('Nur fuer die Verwaltung', 403);
+
+      const koerper = await request.json().catch(() => ({}));
+      const codes = (Array.isArray(koerper.codes) ? koerper.codes : [])
+        .map((c) => String(c || '').toUpperCase())
+        .filter((c) => /^[A-Z0-9]{5}$/.test(c))
+        .slice(0, 25);
+      if (!codes.length) return fail('Keine brauchbaren MARSHA-Kennungen', 400);
+
+      const takt = Math.min(Math.max(Number(koerper.takt) || 1500, 200), 10000);
+      const ergebnisse = [];
+      const beginn = Date.now();
+
+      for (const [i, code] of codes.entries()) {
+        if (i) await new Promise((f) => setTimeout(f, takt));
+        const t0 = Date.now();
+        let karten = null;
+        let fehler = null;
+        try {
+          karten = await marriottRoomCards({ website: null, name: code }, code);
+        } catch (err) {
+          fehler = String(err.message || err).slice(0, 160);
+        }
+        ergebnisse.push({
+          code,
+          zimmer: karten?.zimmer?.length || 0,
+          erste: karten?.zimmer?.[0]?.name || null,
+          ms: Date.now() - t0,
+          fehler,
+        });
+      }
+
+      const durch = ergebnisse.filter((e) => e.zimmer > 0).length;
+      return json({
+        geprueft: codes.length,
+        durchgekommen: durch,
+        quote: Math.round((durch / codes.length) * 100) + '%',
+        takt_ms: takt,
+        dauer_s: Math.round((Date.now() - beginn) / 1000),
+        ergebnisse,
       });
     }
 

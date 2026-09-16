@@ -358,6 +358,27 @@ Häuser ohne hilton.com-Adresse in der Datenbank haben keinen CTYHOCN und werden
 
 Einzelheiten in `bruecke/LIESMICH.md`.
 
+### Zuordnung Hotel → Vorrat
+
+`vorratKennung` sucht in zwei Stufen. Erst deckungsgleicher Name, dann: alle
+bedeutungstragenden Wörter des kürzeren Namens kommen im längeren vor. Passt
+mehr als ein Haus, wird **nichts** zugeordnet — lieber keine Kategorien als die
+eines anderen Hauses.
+
+Füllwörter wie „Hotel", „The", „by", „Collection" zählen dabei nicht mit.
+
+```
+Le Méridien              → Le Meridien Stuttgart
+Marriott Tirana          → Tirana Marriott Hotel
+Marriot Courtyard Basel  → Courtyard Basel      (Tippfehler unschädlich)
+Courtyard by Marriott    → kein Treffer         (Stadt fehlt im Namen)
+```
+
+**Achtung bei neuen Ketten:** Die Kandidatensuche lief ursprünglich nur über die
+Stadt. Im Marriott-Vorrat ist `city` leer, weil `roomCards` sie nicht liefert —
+dadurch fand die Abfrage nie Kandidaten, und selbst identische Namen trafen
+nicht. Jetzt wird über Stadt **oder** Name gesucht.
+
 ### Wer die Bereinigung ändert, muss den Vorrat nachziehen
 
 `vorrat.mjs` überspringt alles, was schon im Vorrat liegt. Nach jeder Änderung

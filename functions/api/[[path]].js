@@ -1186,21 +1186,45 @@ function vergleichsname(name) {
     .replace(/\bhotel\b/gi, ' '));
 }
 
+// Woerter, die in Hotelnamen nichts unterscheiden.
+const FUELLWORT = /^(hotel|hotels|resort|the|a|an|by|and|und|of|member|collection|portfolio|autograph|tribute|design|suites|inn)$/i;
+
+function namensWoerter(name) {
+  return vergleichsname(name).split(/[\s-]+/).filter((w) => w && !FUELLWORT.test(w));
+}
+
 async function vorratKennung(env, hotel, kette = 'hilton') {
+  const ziel = namensWoerter(hotel.name);
+  if (!ziel.length) return null;
+
+  // Kandidaten holen: ueber die Stadt, wenn der Vorrat welche kennt, sonst
+  // ueber den Namen. Bei Marriott ist city leer – die alte Fassung suchte
+  // trotzdem nach Stadt und fand deshalb nie etwas.
   const stadt = (hotel.city || '').trim();
-  const abfrage = stadt
-    ? `SELECT ctyhocn, name FROM chain_hotels WHERE kette = ? AND city LIKE ?`
-    : `SELECT ctyhocn, name FROM chain_hotels WHERE kette = ? AND name LIKE ?`;
-  const wert = stadt ? stadt : '%' + String(hotel.name || '').slice(0, 14) + '%';
+  const rows = await env.DB.prepare(
+    `SELECT ctyhocn, name, city FROM chain_hotels
+      WHERE kette = ?
+        AND ((city IS NOT NULL AND city <> '' AND city LIKE ?) OR name LIKE ?)`
+  ).bind(kette, stadt || '\u0000', '%' + (ziel[0] || '') + '%').all().catch(() => null);
 
-  const rows = await env.DB.prepare(abfrage).bind(kette, wert).all().catch(() => null);
-  const ziel = vergleichsname(hotel.name);
-  if (!ziel) return null;
+  const kandidaten = rows?.results || [];
+  if (!kandidaten.length) return null;
 
-  // Nur ein deckungsgleicher Name zaehlt. Alles Weichere verwechselt ein
-  // Hampton mit dem Hilton in derselben Stadt.
-  const treffer = (rows?.results || []).find((k) => vergleichsname(k.name) === ziel);
-  return treffer ? treffer.ctyhocn : null;
+  // Erste Wahl: deckungsgleicher Name.
+  const genau = kandidaten.filter((k) => vergleichsname(k.name) === vergleichsname(hotel.name));
+  if (genau.length === 1) return genau[0].ctyhocn;
+
+  // Zweite Wahl: alle bedeutungstragenden Woerter des kuerzeren Namens kommen
+  // im laengeren vor. "Le Meridien" findet so "Le Meridien Stuttgart".
+  const passend = kandidaten.filter((k) => {
+    const dort = namensWoerter(k.name);
+    if (!dort.length) return false;
+    const [kurz, lang] = ziel.length <= dort.length ? [ziel, dort] : [dort, ziel];
+    return kurz.length >= 1 && kurz.every((w) => lang.includes(w));
+  });
+
+  // Passt mehr als eines, wird lieber gar nichts zugeordnet als das falsche.
+  return passend.length === 1 ? passend[0].ctyhocn : null;
 }
 
 // Liest die Kategorien aus dem Vorrat. Der wird von der Bruecke gefuellt und

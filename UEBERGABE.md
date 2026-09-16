@@ -1,6 +1,6 @@
 # stayLOG — Übergabe an einen neuen Chat
 
-Stand: 10. September 2026
+Stand: 14. September 2026
 
 ---
 
@@ -41,67 +41,160 @@ Bitte dort nachlesen statt neu zu erfragen.
 
 Vier Stufen, Einzelheiten in `TECHNIK.md`, Abschnitt 4.
 
-**Gelöst: Marriott.** Eine offene Abfrage liefert alle Kategorien mit den
-offiziellen Namen, kostenlos und in Sekunden:
+Drei Ketten, drei völlig verschiedene Wege. Das ist kein Wildwuchs, sondern
+Folge dessen, was jede Kette zulässt — wer daran etwas vereinheitlichen will,
+sollte erst die Begründungen hier lesen.
+
+### Marriott — vollständig gelöst, ohne Brücke
+
+Die einzige Kette, bei der **der Server alles allein kann**. Kein Browser, kein
+Rechner, der laufen muss.
+
+```
+Sitemap → MARSHA-Kennung → roomCards aus Cloudflare → Vorrat
+```
+
+Das Verzeichnis kommt aus Marriotts eigenen Sitemaps, die in `robots.txt`
+ausdrücklich genannt sind und auf `/content/dam/` ohne Bot-Prüfung liegen:
+
+```
+https://www.marriott.com/content/dam/marriott-hws/sitemap-xmls/<sprache>-sitemap-hws-<1..7>.xml
+```
+
+Die Kennung steht in jeder Adresse: `/hotels/amsel-element-amsterdam/` → `AMSEL`.
+Fünf Sprachfassungen (de, en-gb, fr, it, es) ergeben zusammen **3.608 Kennungen
+mit Slug**; eine allein deckt nur einen Teil ab. Die Liste liegt als
+`bruecke/marriott-slugs.csv`.
+
+Die Kategorien holt dann `/chain/marriott` selbst, 20 bis 30 Häuser je Aufruf.
+Stand: **2.951 Häuser, 21.378 Kategorien.** Die Differenz zu 3.608 sind Häuser
+ohne verwertbare Kategorien — geschlossene und solche mit nur ein oder zwei
+Zimmerarten, die unter der Untergrenze von drei bleiben.
+
+Die Einzelabfrage `roomCards` funktioniert weiterhin für Häuser außerhalb des
+Vorrats:
 
 ```
 https://www.marriott.com/services/marriott-hws/roomCards/?marsha={CODE}&locale=de-DE
 ```
 
-Der Code steht in jeder Marriott-Adresse (`vlcva-ac-hotel-valencia` → `VLCVA`)
-und wird auch in den Quelladressen gefundener Kategorien gesucht. Damit
-funktionieren auch weiche Marken wie Autograph und Tribute Portfolio.
+**Die Suchseiten von Marriott sind Akamai-geschützt** und für gesteuerte Browser
+gesperrt. Das spielt keine Rolle — sie werden nicht gebraucht.
 
-**Gelöst: schema.org.** Viele Ketten legen ihre Kategorien als
-`"@type":"HotelRoom"` ins HTML. Wichtig: über Cloudflares `/content`-Endpunkt
-holen, nicht `/markdown` — die Markdown-Fassung wirft die Blöcke weg.
+### Hilton — Vorrat über die Brücke
 
-**Gebaut: Hilton.** Aus einem HAR-Mitschnitt kam die Abfrage:
+`hotel.roomTypes` per GraphQL, Kennung ist der CTYHOCN aus der Adresse
+(`FRAHITW`), dazu `roomTypeCategories` mit den Gruppen `guest`, `executive`,
+`suites`.
 
-```
-POST https://www.hilton.com/graphql/customer?...&operationName=hotel_roomTypes
-```
-
-Sie liefert `hotel.roomTypes` mit den offiziellen deutschen Namen, ohne Datum,
-dazu `roomTypeCategories` mit den Gruppen `guest`, `executive`, `suites` als
-Grobsortierung. Kennung ist der CTYHOCN aus der Adresse (`FRAHITW`).
-
-**Aus Cloudflare heraus geht sie nicht.** Akamai antwortet mit
+**Aus Cloudflare heraus geht das nicht.** Akamai antwortet mit
 `HTTP 200, text/html, "Success"` — die Anfrage erreicht den Server nie. Der
 Browserdienst hilft auch nicht, Cloudflare weist ihn laut eigener Dokumentation
-über nicht änderbare Kopfzeilen als Bot aus. Deshalb läuft der Abruf über die
-**Brücke** in `bruecke/`: ein echter Browser auf dem eigenen Rechner, einmal
-angemeldet, dann alle Häuser hintereinander. Siehe `TECHNIK.md`, Abschnitt 8.
+über nicht änderbare Kopfzeilen als Bot aus. Deshalb die **Brücke** in
+`bruecke/`: ein echter Browser auf dem eigenen Rechner.
 
-**Vorrat: erledigt.** 938 europäische Hilton-Häuser mit 7.623 Kategorien liegen
-in `chain_hotels`/`chain_rooms`, geschlüsselt nach Kennung, getrennt von der
-Hotelliste. Wer ein europäisches Hilton anlegt, hat die Kategorien in Sekunden —
-ohne Recherche, ohne Netzzugriff, ohne dass ein Rechner laufen muss. Gefunden
-wird das Haus über die Kennung aus der Adresse oder über Name und Stadt.
+Hilton hat zusätzlich die Suchabfrage `hotelSummaryOptions` nach dem ersten
+Durchlauf gesperrt. Die Häuserliste kommt seitdem aus dem **Seitenzustand** —
+`__NEXT_DATA__` jeder Standortseite trägt ihre Hotels und die Verweise auf alle
+Städte des Landes. Seitenaufrufe drosselt Hilton nicht. `bruecke/ernte.mjs`
+läuft diesen Weg, 563 Aufrufe für Europa.
 
-Der Weg dorthin, weil er nicht naheliegt: Hilton hat die Suchabfrage
-`hotelSummaryOptions` nach dem ersten Durchlauf gesperrt. Die Häuser kommen
-seitdem aus dem **Seitenzustand** — `__NEXT_DATA__` jeder Standortseite trägt
-ihre Hotels und die Verweise auf alle Städte des Landes. Seitenaufrufe drosselt
-Hilton nicht. `bruecke/ernte.mjs` läuft diesen Weg, 563 Aufrufe für Europa.
+Stand: **938 Häuser, rund 7.400 Kategorien.** Lücken: fünf Vacation Clubs ohne
+Zimmerkategorien, Russland (keine Länderseite mehr), Türkei unvollständig
+(95 statt 108).
 
-Lücken: fünf Vacation Clubs ohne Zimmerkategorien, Russland (keine Länderseite
-mehr), Türkei unvollständig (95 statt 108).
+### Radisson — nur die eigenen Häuser, kein Vorrat
 
-**Radisson: gebaut.** Läuft auf Nuxt, die Zimmer stehen in `window.__NUXT__`.
-`bruecke/radisson.mjs` öffnet die Zimmerseite und liest sie aus, ganz ohne
-Abfrage. Die Hauskennung (`DEHAM1`) steht nur im Zustand, nicht in der Adresse.
-Bereinigung ist kaum nötig — Bettvarianten fasst Radisson selbst zusammen.
-Gegen Hamburg geprüft: 18 Rohobjekte werden zu 9 Kategorien.
+Läuft auf Nuxt, die Zimmer stehen in `window.__NUXT__`.
+`bruecke/radisson.mjs` öffnet die Zimmerseite und liest sie aus. Die Hauskennung
+(`DEHAM1`) steht nur im Zustand, nicht in der Adresse. Die **englische** Seite
+`/en-us/.../rooms` ist erste Wahl — bei „Radisson Individuals"-Häusern liefert
+die deutsche keine Zimmerdaten.
 
-Im Betrieb zeigte sich: **Radisson sperrt gesteuerte Browser bei zu vielen
-Aufrufen kurz hintereinander** („Your access has been restricted ... automated
-detection"). Einzelne Aufrufe gehen durch, sechs hintereinander nicht. Die
-Brücke wartet deshalb 25 Sekunden je Haus und bricht ab, sobald sie die
-Sperrseite erkennt. Am Erkennungsmechanismus vorbeizubauen wäre das Aushebeln
-einer Schutzmaßnahme und ist bewusst unterlassen. Ein Vorrat für ganze Regionen fehlt ebenfalls —
-bei Radisson kostet jedes Haus einen Seitenaufruf, es gibt keine Sammelabfrage
-wie bei Hiltons Standortseiten.
+**Radisson sperrt gesteuerte Browser** („Your access has been restricted ...
+automated detection"). Einzelne Aufrufe gehen durch, mehrere hintereinander
+nicht. Auch ein einfacher Abruf mit PowerShell wird mit 403 abgewiesen. Am
+Erkennungsmechanismus vorbeizubauen wäre das Aushebeln einer Schutzmaßnahme
+und ist bewusst unterlassen.
+
+Eine Content-Quelle hinter den Seiten gibt es nicht: CMS ist SDL Tridion, der
+Redaktionsserver ist nicht öffentlich, die einzige Schnittstelle (`/webapps-api`)
+ist das Buchungs-SDK. **Diese Suche ist erledigt — bitte nicht wiederholen.**
+
+Deshalb kein Vorrat für Regionen, nur die Häuser der eigenen Runde. Neue Häuser
+bekommen ihre Kategorien erst beim nächsten Brücken-Lauf.
+
+### schema.org als Rückfall
+
+Viele Ketten legen ihre Kategorien als `"@type":"HotelRoom"` ins HTML. Über
+Cloudflares `/content`-Endpunkt holen, nicht `/markdown` — die Markdown-Fassung
+wirft die Blöcke weg.
+
+---
+
+## Fallstricke, die Zeit gekostet haben
+
+**Cloudflares D1-Tagesgrenze.** 100.000 Schreibvorgänge. Ein Vorratslauf über
+tausende Häuser reißt sie, und dann sperrt Cloudflare den Zugriff für die App
+**und** für `wrangler` (Fehler 7403, dazu 503 an allen Endpunkten). Das hat
+einen Abend gekostet. Vorratsläufe deshalb in Etappen von etwa tausend Häusern
+je Tag.
+
+**Blockgröße.** 30 Häuser je Aufruf laufen in die Zeitgrenze, wenn viele davon
+nichts liefern — dann entfällt das Speichern und es werden 30 Abrufe ohne Pause
+gemacht. 20 sind sicher.
+
+**Wer die Bereinigung ändert, muss den Vorrat nachziehen.** `vorrat.mjs`
+überspringt, was schon drinsteht. Ohne `--neu` behalten vorhandene Häuser
+stillschweigend die alten Namen, und der Fehler zeigt sich erst, wenn jemand ein
+Hotel anlegt. Das ist bei Hilton zweimal passiert.
+
+**Regeln an mehreren Häusern prüfen, nicht an einem.** Die Loungeregel war an
+Berlin entwickelt, wo der Zusatz am Gedankenstrich hängt. Tatsächlich hängt er
+meist an „und" oder „mit" — 135 Einträge blieben falsch.
+
+**Die Verwaltungsadresse ist `kimhoehe@email.de`**, nicht `web.de`. Mit der
+falschen kommt 403 ohne Inhalt.
+
+**`Select-String` auf `functions/api/[[path]].js` braucht `-LiteralPath`**,
+sonst deutet PowerShell die eckigen Klammern als Platzhalter und meldet
+stillschweigend null Treffer.
+
+**Aus einem ZIP entpackte Skripte sind blockiert.** `Get-ChildItem -Recurse |
+Unblock-File` vor `.\build.ps1`, sonst verweigert PowerShell die Ausführung.
+
+---
+
+## Zuordnung Hotel → Vorrat
+
+`vorratKennung` sucht Kandidaten über Stadt **oder** Name, dann in zwei Stufen:
+erst deckungsgleicher Name, dann Teilmenge der bedeutungstragenden Wörter.
+Passt mehr als ein Haus, wird nichts zugeordnet.
+
+Der Fehler, der lange unbemerkt blieb: Die Suche lief nur über die Stadt, und im
+Marriott-Vorrat ist `city` leer, weil `roomCards` sie nicht liefert. Dadurch
+fand die Abfrage nie Kandidaten — selbst bei identischen Namen.
+
+Was weiterhin nicht zugeordnet wird, sind Namen ohne Ortsangabe wie „Courtyard
+by Marriott". Das ist Absicht: eine Zuordnung wäre geraten.
+
+---
+
+## Offen
+
+- **Radisson ohne Automatik.** Neue Häuser bekommen Kategorien nur, wenn die
+  Brücke läuft. Zwei Verbesserungen sind besprochen, aber nicht gebaut: die
+  Kettenadresse beim Anlegen speichern, auch wenn die Recherche scheitert, und
+  die Brücke als geplante Aufgabe nachts laufen lassen.
+- **Gemischte Sprachen.** Hilton deutsch, Radisson englisch, Marriott teils
+  englisch. Marriotts `locale=de-DE` wird nicht überall befolgt.
+- **Englische Marriott-Häuser werden schlechter bereinigt.** `canonicalRoomName`
+  ist auf deutsche Muster gebaut. Bei US-Häusern stehen
+  Ausstattungsmerkmale als eigene „Zimmer" (`Hydrotherapy Shower`,
+  `Window Alcove`). Für Europa ohne Belang, deshalb bewusst nicht weiter
+  verfolgt.
+- **Marriott-Vorrat ohne Stadt und Land.** Eine Einschränkung auf Regionen ist
+  damit nicht möglich; es liegen alle 2.951 Häuser drin, auch außereuropäische.
 
 ---
 
@@ -115,6 +208,11 @@ Upgrade-Leiter ist das falsch. Deshalb wird beim Speichern vereinheitlicht:
 - **Der Ausblick bleibt eine eigene Kategorie** — Meerblick ist laut Nutzer
   eine echte Aufwertung
 - Doppelte werden zusammengefasst, Bettarten mit „oder" verbunden
+
+Je Kette gibt es eigene Regeln, weil jede anders schreibt — `hiltonRoomName`
+und `hiltonSchluessel`, `marriottRoomName` und `bettSaeubern`,
+`radissonZimmerAusObjekten`. Was für eine Kette gebaut wird, gehört **nicht**
+in `canonicalRoomName`: dort ändert es alle drei gleichzeitig.
 
 Aus 22 Einträgen werden so etwa 9. Achtung: Es gibt zwei Speicherwege — die
 Recherche und der Endpunkt `/hotels/:id/rooms` aus der Oberfläche. Beide
